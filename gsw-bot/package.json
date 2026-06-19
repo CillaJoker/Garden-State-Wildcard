@@ -1,0 +1,15 @@
+{
+  "name": "gsw-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot for GSW Google Sheet management",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.36.3",
+    "dotenv": "^16.4.7",
+    "googleapis": "^144.0.0",
+    "node-telegram-bot-api": "^0.66.0"
+  }
+}

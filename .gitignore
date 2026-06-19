@@ -1,3 +1,7 @@
 node_modules
 dist
 .DS_Store
+
+# gsw-bot secrets
+gsw-bot/node_modules/
+gsw-bot/secrets/

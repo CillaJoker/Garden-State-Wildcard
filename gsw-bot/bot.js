@@ -6,12 +6,14 @@ const TelegramBot = require('node-telegram-bot-api');
 const { extractEntry } = require('./extract');
 const {
   nextId,
-  nextIds,
+  appendRows,
   writeRow,
   writeRowAtIndex,
   updateInventoryStatus,
+  updateInventoryStatusBatch,
   getInventoryRow,
   getInventoryRowData,
+  getInventoryLookup,
   getInventoryRowsByPurchaseId,
   searchInventoryByCard,
   recalcAllocations,
@@ -181,34 +183,30 @@ function computeAllocatedCosts(items, cardCost, shippingIn, allocationMethod) {
 
 async function writePurchase(entry) {
   const p = entry.purchase;
-  const pId = await nextId('purchases');
   const items = p.items && p.items.length > 0
     ? p.items
     : [{ card: 'Bulk remainder', qty: p.num_cards || 1, value_weight: null }];
-  const iIds = await nextIds('inventory', items.length);
 
-  const purchaseRowIndex = await writeRow('purchases', {
-    A: pId, B: p.date, C: p.seller || '', D: p.channel,
+  // 1 read: append the purchase row (auto-assigns the P-ID)
+  const { rowIndexes: [purchaseRowIndex], ids: [pId] } = await appendRows('purchases', [{
+    B: p.date, C: p.seller || '', D: p.channel,
     E: p.description || '', F: p.lot_or_single,
     G: p.num_cards || '', H: p.card_cost || '', I: p.shipping_in || 0,
     K: p.sales_tax_paid || 0, L: p.st3_used, M: p.allocation_method,
     P: p.receipt_link || '', Q: p.notes || '',
-  });
+  }]);
 
   const allocatedCosts = computeAllocatedCosts(items, p.card_cost, p.shipping_in, p.allocation_method);
 
-  const invRows = [];
-  for (let i = 0; i < items.length; i++) {
-    const it = items[i];
-    const rowIdx = await writeRow('inventory', {
-      A: iIds[i], B: pId, C: it.card || 'Bulk remainder',
-      D: it.grade_cert || '', E: it.qty || 1,
-      F: it.value_weight != null ? it.value_weight : '',
-      G: allocatedCosts[i],
-      H: 'In stock', I: '',
-    });
-    invRows.push({ tab: 'inventory', rowIndex: rowIdx });
-  }
+  // 1 read: append all inventory rows in a single batchUpdate (auto-assigns I-IDs)
+  const { rowIndexes, ids: iIds } = await appendRows('inventory', items.map((it, i) => ({
+    B: pId, C: it.card || 'Bulk remainder',
+    D: it.grade_cert || '', E: it.qty || 1,
+    F: it.value_weight != null ? it.value_weight : '',
+    G: allocatedCosts[i],
+    H: 'In stock', I: '',
+  })));
+  const invRows = rowIndexes.map((rowIndex) => ({ tab: 'inventory', rowIndex }));
 
   return { pId, iIds, purchaseRowIndex, invRows };
 }
@@ -222,72 +220,74 @@ async function writeSale(entry) {
     throw new Error(`"${badIds.join('", "')}" ${badIds.length === 1 ? 'is' : 'are'} not a valid inventory ID (expected I-####). Re-send using the card name instead.`);
   }
   const newItems = s.new_items || [];
-  const totalCount = existingItemIds.length + newItems.length;
-  const sIds = await nextIds('sales', totalCount);
-  const writtenRows = [];
-  const newInventoryRows = [];
 
-  // Auto-create inventory entries for pre-existing (untracked) cards
-  const newItemIds = [];
-  for (const ni of newItems) {
-    const iId = await nextId('inventory');
-    const invIdx = await writeRow('inventory', {
-      A: iId, B: '', C: ni.card || '',
-      D: ni.grade_cert || '', E: ni.qty || 1,
+  // 1 read (only if needed): batch-create inventory entries for untracked cards
+  let newInventoryRows = [];
+  const newItemsResolved = [];
+  if (newItems.length > 0) {
+    const { rowIndexes, ids } = await appendRows('inventory', newItems.map(ni => ({
+      B: '', C: ni.card || '', D: ni.grade_cert || '', E: ni.qty || 1,
       F: '', H: 'In stock', I: '',
+    })));
+    newInventoryRows = rowIndexes.map((rowIndex) => ({ tab: 'inventory', rowIndex }));
+    newItems.forEach((ni, i) => {
+      newItemsResolved.push({ itemId: ids[i], rowIndex: rowIndexes[i], card: ni.card || '' });
     });
-    newItemIds.push(iId);
-    newInventoryRows.push({ tab: 'inventory', rowIndex: invIdx });
   }
 
-  const allItemIds = [...existingItemIds, ...newItemIds];
-  const allCardNames = [
-    ...await Promise.all(existingItemIds.map(async (id) => {
-      const d = await getInventoryRowData(id);
+  // 1 read (only if needed): resolve all existing item IDs (card + rowIndex) at once
+  let existingResolved = [];
+  if (existingItemIds.length > 0) {
+    const lookup = await getInventoryLookup();
+    existingResolved = existingItemIds.map((id) => {
+      const d = lookup.get(id);
       if (!d) throw new Error(`Item ID ${id} not found in Inventory tab`);
-      return d.card;
-    })),
-    ...newItems.map(ni => ni.card || ''),
-  ];
+      return { itemId: id, rowIndex: d.rowIndex, card: d.card };
+    });
+  }
+
+  // Order matches the previous implementation: existing items first, then new ones
+  const allItems = [...existingResolved, ...newItemsResolved];
   const whoRemitted = s.who_remitted ||
     (['Whatnot', 'eBay', 'CollX'].includes(s.platform) ? 'Platform' : 'Me');
 
-  for (let i = 0; i < allItemIds.length; i++) {
-    const itemId = allItemIds[i];
-    const rowIdx = await writeRow('sales', {
-      A: sIds[i], B: s.date, C: s.platform, D: s.order_no || '', E: itemId,
-      F: allCardNames[i],
-      G: s.sale_price || '', H: s.shipping_charged || 0, I: s.platform_fees || 0,
-      J: s.sales_tax_collected != null ? s.sales_tax_collected : '',
-      K: whoRemitted, O: s.buyer_state || '', P: s.notes || '',
-    });
-    writtenRows.push({ tab: 'sales', rowIndex: rowIdx });
-    await updateInventoryStatus(itemId, 'Sold', sIds[i]);
-  }
+  // 1 read: append all sale rows in a single batchUpdate (auto-assigns S-IDs)
+  const { rowIndexes: saleRowIndexes, ids: sIds } = await appendRows('sales', allItems.map(it => ({
+    B: s.date, C: s.platform, D: s.order_no || '', E: it.itemId,
+    F: it.card,
+    G: s.sale_price || '', H: s.shipping_charged || 0, I: s.platform_fees || 0,
+    J: s.sales_tax_collected != null ? s.sales_tax_collected : '',
+    K: whoRemitted, O: s.buyer_state || '', P: s.notes || '',
+  })));
+  const writtenRows = saleRowIndexes.map((rowIndex) => ({ tab: 'sales', rowIndex }));
+
+  // 0 reads: mark every sold item's inventory row in a single batchUpdate
+  await updateInventoryStatusBatch(allItems.map((it, i) => ({
+    rowIndex: it.rowIndex, status: 'Sold', saleId: sIds[i],
+  })));
 
   return { sIds, writtenRows, newInventoryRows, existingItemIds };
 }
 
 async function writeExpense(entry) {
   const e = entry.expense;
-  const rowIdx = await writeRow('expenses', {
+  const { rowIndexes: [rowIdx] } = await appendRows('expenses', [{
     A: e.date, B: e.category, C: e.vendor || '',
     D: e.description || '', E: e.amount,
     F: e.receipt_link || '', G: e.notes || '',
-  });
+  }]);
   return { rowIdx };
 }
 
 async function writeInventory(entry) {
   const inv = entry.inventory;
   if (inv.op === 'add') {
-    const iId = await nextId('inventory');
-    const rowIndex = await writeRow('inventory', {
-      A: iId, B: inv.purchase_id || '', C: inv.card || '',
+    const { rowIndexes: [rowIndex], ids: [iId] } = await appendRows('inventory', [{
+      B: inv.purchase_id || '', C: inv.card || '',
       D: inv.grade_cert || '', E: inv.qty || 1,
       F: inv.value_weight != null ? inv.value_weight : '',
       H: inv.status || 'In stock', I: inv.sale_id || '',
-    });
+    }]);
     return { iId, rowIndex };
   } else {
     const rowIdx = await getInventoryRow(inv.item_id);
@@ -466,19 +466,15 @@ async function handleBreakdownInput(chatId, text, state) {
 async function performBreakdown(chatId, state) {
   const { purchaseId, bulkRows, cards } = state;
 
-  const iIds = await nextIds('inventory', cards.length);
+  // 1 read: append the individual rows first (so the bulk rows still count toward
+  // the max I-ID), then clear the now-replaced bulk rows.
+  const { rowIndexes, ids: iIds } = await appendRows('inventory', cards.map(card => ({
+    B: purchaseId, C: card, D: '', E: 1, F: '', H: 'In stock', I: '',
+  })));
+  const newRows = rowIndexes.map((rowIndex) => ({ tab: 'inventory', rowIndex }));
 
   for (const row of bulkRows) {
     await clearRow('inventory', row.rowIndex);
-  }
-
-  const newRows = [];
-  for (let i = 0; i < cards.length; i++) {
-    const rowIdx = await writeRow('inventory', {
-      A: iIds[i], B: purchaseId, C: cards[i],
-      D: '', E: 1, F: '', H: 'In stock', I: '',
-    });
-    newRows.push({ tab: 'inventory', rowIndex: rowIdx });
   }
 
   lastWrite.set(chatId, {

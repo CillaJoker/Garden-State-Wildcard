@@ -491,13 +491,21 @@ async function performBreakdown(chatId, state) {
 // ── Multi-entry helpers ────────────────────────────────────────────────────
 
 function splitMultiEntry(text) {
+  // Explicit label form, e.g. "Sale: sold I-0004 for $120"
   const labelRe = /^[ \t]*(purchase|purch|buy|sale|sell|expense|exp|inventory|inv)[ \t]*:/i;
+  // Unlabeled transaction line: starts with an action verb AND names a dollar
+  // amount on the same line. Requiring the "$digit" guards against splitting on
+  // continuation lines like "paid via PayPal" or "sold to a buyer in NJ".
+  const verbRe = /^[ \t]*(bought|buy|purchased|picked up|sold|sell|spent|paid)\b/i;
+  const moneyRe = /\$\s?\d/;
+  const isEntryStart = (line) => labelRe.test(line) || (verbRe.test(line) && moneyRe.test(line));
+
   const lines = text.split('\n');
   const segments = [];
   let current = null;
 
   for (const line of lines) {
-    if (labelRe.test(line)) {
+    if (isEntryStart(line)) {
       if (current !== null) segments.push(current.trim());
       current = line;
     } else if (current !== null) {
@@ -541,28 +549,48 @@ async function processMultiMessage(chatId, parts) {
     return;
   }
 
-  // Resolve card name lookups for all sales in the batch; collect any that need user input
+  // Resolve sale lookups (purchase_ids / card names) for all sales in the batch;
+  // collect anything that needs user input, drop entries that fully fail to resolve.
   const allPendingDisambig = [];
+  const batchErrors = [];
+  const entries = [];
   for (let i = 0; i < valid.length; i++) {
-    const r = valid[i];
-    if (r.entry.intent === 'sale' && (
-      (r.entry.sale?.card_descriptions || []).length > 0 ||
-      (r.entry.sale?.new_items || []).length > 0
-    )) {
+    let entry = valid[i].entry;
+    const needsResolve = entry.intent === 'sale' && (
+      (entry.sale?.purchase_ids || []).length > 0 ||
+      (entry.sale?.card_descriptions || []).length > 0 ||
+      (entry.sale?.new_items || []).length > 0
+    );
+    if (needsResolve) {
+      let res;
       try {
-        const res = await resolveCardDescriptions(r.entry);
-        r.entry = res.entry; // 0-match cards already moved to new_items
-        for (const d of res.disambiguations) {
-          allPendingDisambig.push({ batchIdx: i, ...d });
-        }
+        res = await resolveCardDescriptions(entry);
       } catch (err) {
         await bot.sendMessage(chatId, `Inventory lookup failed: ${err.message}`);
         return;
       }
+      entry = res.entry; // 0-match cards already moved to new_items
+      res.errors.forEach(e => batchErrors.push(`Entry ${i + 1}: ${e}`));
+
+      const hasItems = (entry.sale.item_ids || []).length > 0 || (entry.sale.new_items || []).length > 0;
+      if (!hasItems && res.disambiguations.length === 0) {
+        // Nothing sellable and nothing to ask about — skip this entry entirely
+        continue;
+      }
+      const idx = entries.length;
+      entries.push(entry);
+      for (const d of res.disambiguations) {
+        allPendingDisambig.push({ batchIdx: idx, ...d });
+      }
+    } else {
+      entries.push(entry);
     }
   }
 
-  const entries = valid.map(r => r.entry);
+  if (batchErrors.length > 0) {
+    await bot.sendMessage(chatId, `Couldn't resolve some items (left out of the batch below):\n${batchErrors.map(e => `• ${e}`).join('\n')}`);
+  }
+  if (entries.length === 0) return;
 
   if (allPendingDisambig.length > 0) {
     const state = {
@@ -778,10 +806,35 @@ async function handleFollowUp(chatId, text) {
 async function resolveCardDescriptions(entry) {
   const s = entry.sale;
   const descriptions = s.card_descriptions || [];
+  const purchaseIds = s.purchase_ids || [];
   const incomingNewItems = s.new_items || [];
   const unmatchedNewItems = [];
+  const resolvedItemIds = [];
   const disambiguations = [];
+  const errors = [];
   const assumptions = [...(entry.assumptions || [])];
+
+  // Resolve Purchase IDs (P-####) to their in-stock inventory item(s)
+  for (const rawPid of purchaseIds) {
+    const pid = String(rawPid).trim().toUpperCase();
+    const rows = await getInventoryRowsByPurchaseId(pid);
+    const available = rows.filter(r => r.status !== 'Sold');
+    if (rows.length === 0) {
+      errors.push(`${pid}: no inventory rows found for that purchase`);
+    } else if (available.length === 0) {
+      errors.push(`${pid}: all items from that purchase are already marked Sold`);
+    } else if (available.length === 1) {
+      resolvedItemIds.push(available[0].itemId);
+      assumptions.push(`${pid} → ${available[0].itemId}`);
+    } else {
+      disambiguations.push({
+        description: pid,
+        matches: available.map(r => ({
+          itemId: r.itemId, card: r.card, gradeCert: r.gradeCert, status: r.status,
+        })),
+      });
+    }
+  }
 
   // Check card_descriptions against inventory; always prompt even on 1 match
   for (const desc of descriptions) {
@@ -810,12 +863,13 @@ async function resolveCardDescriptions(entry) {
     sale: {
       ...s,
       card_descriptions: [],
-      item_ids: [...(s.item_ids || [])],
+      purchase_ids: [],
+      item_ids: [...(s.item_ids || []), ...resolvedItemIds],
       new_items: unmatchedNewItems,
     },
   };
 
-  return { entry: resolvedEntry, disambiguations };
+  return { entry: resolvedEntry, disambiguations, errors };
 }
 
 async function showDisambiguationPrompt(chatId, resolvedEntry, disambiguations, currentIndex) {
@@ -925,8 +979,9 @@ async function processMessage(chatId, text) {
     return;
   }
 
-  // Resolve card name lookups for sales (card_descriptions and new_items both checked)
+  // Resolve sale lookups (purchase_ids, card_descriptions, and new_items)
   if (entry.intent === 'sale' && (
+    (entry.sale?.purchase_ids || []).length > 0 ||
     (entry.sale?.card_descriptions || []).length > 0 ||
     (entry.sale?.new_items || []).length > 0
   )) {
@@ -937,11 +992,18 @@ async function processMessage(chatId, text) {
       await bot.sendMessage(chatId, `Error searching inventory: ${err.message}`);
       return;
     }
+    if (resolved.errors.length > 0) {
+      await bot.sendMessage(chatId, `Couldn't resolve some items:\n${resolved.errors.map(e => `• ${e}`).join('\n')}`);
+    }
     if (resolved.disambiguations.length > 0) {
       await showDisambiguationPrompt(chatId, resolved.entry, resolved.disambiguations, 0);
       return;
     }
     entry = resolved.entry;
+    // Nothing left to sell after resolution (e.g. every referenced purchase was already sold)
+    if ((entry.sale.item_ids || []).length === 0 && (entry.sale.new_items || []).length === 0) {
+      return;
+    }
   }
 
   await showConfirmPrompt(chatId, entry);
@@ -1254,4 +1316,4 @@ bot.on('polling_error', (err) => {
   console.error('Polling error:', err.message);
 });
 
-console.log('GSW Sheet Bot started. Polling for messages...');
+console.log(`GSW Sheet Bot started (build ${new Date().toISOString()}, pid ${process.pid}). Polling for messages...`);

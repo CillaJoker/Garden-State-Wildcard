@@ -101,6 +101,12 @@ Writes a row to the **Sales** tab and marks the item as "Sold" in Inventory.
 sold I-0004 on eBay for $120
 ```
 
+**By Purchase ID (P-#### — sells the inventory item(s) from that purchase):**
+```
+sold P-0055 at a show for $70
+```
+The bot looks up the in-stock inventory item(s) linked to that purchase. If the purchase was a single card it resolves automatically; if it held multiple cards, the bot asks which one. (If every item from that purchase is already marked Sold, that line is skipped with a note.)
+
 **With more detail:**
 ```
 sold I-0004 and I-0005 on Whatnot for $75 total, order #WN-8821, buyer in NJ
@@ -162,7 +168,15 @@ Expense: $12 on bubble mailers from Amazon
 Sale: sold I-0004 on eBay for $120
 ```
 
-The bot lists all three with a single yes/no confirm. Use `/edit` afterward to fix any individual entry in the batch, or `/undo` to clear the whole batch at once.
+**Unlabeled lists also work** when each line starts with an action verb (`bought`, `sold`, `spent`, etc.) and names a dollar amount on that line — handy for pasting a batch of sales:
+```
+sold I-0004 on eBay for $120
+sold I-0005 on eBay for $80
+sold I-0006 on eBay for $50
+```
+Mixing labeled and unlabeled lines in the same message is fine. (Lines without a `$` amount — e.g. a follow-up note like "buyer in NJ" — are treated as continuation of the entry above, not a new entry.)
+
+The bot lists all entries with a single yes/no confirm. Use `/edit` afterward to fix any individual entry in the batch, or `/undo` to clear the whole batch at once.
 
 ---
 

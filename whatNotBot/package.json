@@ -1,0 +1,14 @@
+{
+  "name": "whatnot-bot",
+  "version": "1.0.0",
+  "description": "Follows every account on a given Whatnot user's Following list",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "login": "node login.js",
+    "start": "node follow.js"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}

@@ -5,3 +5,8 @@ dist
 # gsw-bot secrets
 gsw-bot/node_modules/
 gsw-bot/secrets/
+
+# whatNotBot browser session + run state
+whatNotBot/node_modules/
+whatNotBot/profile/
+whatNotBot/state/

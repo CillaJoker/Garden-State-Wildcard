@@ -1,7 +1,11 @@
 # whatNotBot
 
-Follows every account on a given Whatnot user's **Followers** list (or their Following list),
-from your own logged-in Whatnot account.
+Two halves of the same funnel, from your own logged-in Whatnot account:
+
+- **`follow.js`** — follows every account on a given Whatnot user's **Followers** list (or
+  their Following list), to build an audience.
+- **`harvest.js` + `message.js`** — invites *your* followers to your next show and asks them
+  to bookmark it, by driving the show's Share sheet.
 
 Standalone — shares nothing with `gsw-bot/` or the Vite site.
 
@@ -51,6 +55,149 @@ It is deliberately tuned to keep short real handles (`kj23`, `mj_23`, `2024cards
 `00consignments`). Skipped names are recorded as `skipped` in the state file, not retried.
 Pass `--no-filter` to follow the list verbatim.
 
+## Inviting your followers to a show
+
+`message.js` reproduces, click for click, the flow you'd do by hand: Seller Hub → Shows →
+open the upcoming show → **Share** → search a follower → click them → type → **Send**, then
+repeat for the next follower without ever closing the sheet. Because the invite goes out
+through the share sheet, Whatnot attaches the show itself — there's no link to paste.
+
+```bash
+# 1. one-time, after any Whatnot redesign: learn the share sheet's real DOM
+node probe.js
+
+# 2. pull your followers into a roster (run occasionally, not daily)
+node harvest.js gardenstatewildcard --target 300
+
+# 3. check who's on the roster and who's messageable right now
+node status.js gardenstatewildcard
+
+# 4. see exactly what would be sent, to whom — sends nothing
+node message.js gardenstatewildcard --dry-run
+
+# 5. send for real
+node message.js gardenstatewildcard --target 15
+```
+
+`status.js` is read-only and safe to run anytime, including mid-send. It reads the same two
+files `message.js` does — the roster and `state/<user>-contacts.json` — and reports the roster
+total, how many are inside the cooldown window, and how many are eligible now. Add `--list` to
+print the on-cooldown roster (soonest to clear first) and a sample of the eligible pool;
+`--cooldown N` matches whatever window you send with (default 7); `--limit N` sizes the lists.
+
+| flag | default | meaning |
+|---|---|---|
+| `<username>` | — | **your** account (whose followers get invited) |
+| `--show-url` | auto | skip the Seller Hub walk and use this show |
+| `--when` | scraped | override the show time, e.g. `"Thursday at 8pm ET"` |
+| `--title` | scraped | override the show title |
+| `--target N` | `15` | how many to message this run |
+| `--only a,b` | — | message just these accounts, ignoring the roster |
+| `--min-delay` / `--max-delay` | `45` / `150` | seconds between sends |
+| `--dry-run` | off | print the messages, send nothing |
+| `--yes` | off | skip the "press enter to start" confirmation |
+| `--verbose` | off | trace every step inside the share sheet (see below) |
+| `--retry-failed` | off | re-attempt accounts recorded `failed` / `not-found` |
+
+`--when` is worth passing every time. The dashboard yields a bare clock time like `11:00PM`
+with no date, and the bot will **not** infer a day from it — saying "tonight" when the show
+is tomorrow would mislead every recipient at once. `normalizeWhen()` adds a preposition so
+"coming up 11:00PM" reads "coming up at 11:00PM", and leaves anything that already starts
+with a day, "today", "tomorrow" or "tonight" alone.
+
+### Why the messages aren't a template
+
+`lib/messages.js` composes each invite from independent slots — opener, a thank-you hook, the
+show pitch, a perk, the bookmark ask, a sign-off — and also varies *which slots appear at all*
+and how they're joined, because uniform structure is as much of a tell as uniform wording.
+That's ~2M distinct shapes; 300 consecutive composes produced 300 distinct messages.
+
+⚠️ **The `perks` slot makes a standing claim** — currently that the show runs **max shipping**,
+in ~77% of messages. It is not read from the show, so if you ever run a show *without* max
+shipping, edit or empty that array first or you'll be promising something you don't offer.
+
+Picks are seeded off the username, so the same person always gets the same message even
+across reruns. Recent shapes are remembered in the state file and avoided, so no two people in
+a row get identical text. The bookmark ask is the one slot that always appears — its *wording*
+varies, its presence doesn't.
+
+Review them in bulk with `--dry-run` before sending. They are intentionally lowercase-y and
+typo-adjacent ("were back live", "youll get the alert"); if that's not your voice, the slot
+arrays at the top of `lib/messages.js` are the only thing to edit.
+
+### Pacing and safety
+
+Strictly sequential, one tab, keystroke-level typing delays, randomized 45–150s between sends,
+default target 15/day. A run takes 20–40 minutes — the point is that it looks like what it is
+imitating. This is the opposite of `follow.js`'s parallel workers, because a DM is far more
+visible than a follow.
+
+Guards, in rough order of how much they matter:
+
+- **No show, no send.** If the upcoming show or its start time can't be established, the run
+  aborts. Announcing the wrong time to everyone is the worst failure available here.
+- **Never retried.** Any recorded outcome — `messaged`, `failed`, `not-found` — is skipped
+  forever after. A duplicate invite is worse than a missed one, which is the reverse of
+  `follow.js`'s rule (it deliberately retries `failed`).
+- **Verified sends.** Like follows, the UI updates optimistically, so only the GraphQL
+  mutation response counts as delivery.
+- **One recipient, enforced.** The share sheet addresses a *list* — `participantIds` — and it
+  keeps whoever you picked last. A stale selection would silently send the next person's
+  message to both. So the sheet is reopened fresh for every recipient, **and** the outgoing
+  request is read back: anything other than exactly one recipient aborts the run.
+- **Confirmation gate.** The first message is printed and waits on a keypress unless `--yes`.
+- Messages are always single-line: the sheet's message box is a bare `<input type="text">`
+  that can't hold a line break, and no Enter is ever pressed while typing.
+
+### `probe.js`
+
+The share sheet only exists behind a logged-in seller session, so its DOM can't be read from
+source. `probe.js` opens the flow and dumps every interactive element in the topmost dialog
+(role, accessible name, placeholder, href) plus every GraphQL `operationName` on the wire —
+either on keypress, or continuously with `--auto`. Run it and do one real share by hand:
+
+```bash
+node probe.js --auto --start https://www.whatnot.com/
+```
+
+That run (2026-07-21) is where the current selectors come from. What it established:
+
+| | |
+|---|---|
+| Seller's show page | `/dashboard/live/<id>` — the public link is `/live/<id>` |
+| Upcoming shows list | `/dashboard/home`, as `a[href*="/live/"]`, soonest first |
+| Share sheet | is the `[role="dialog"]` |
+| Recipient search | first bare `input[type=text]` — **no placeholder to match on** |
+| Search results | plain `<button>`s whose text is the username — **not `/user/` links** |
+| Message box | second `input[type=text]`, exists only after a recipient is picked |
+| Send | `button` "Send", flips to "Message sent!" |
+| Autocomplete | `AutocompleteDirectMessageRecipients` — intermittently 500s, so searches retry once |
+| Send mutation | `SharePageModalSendDirectMessage` → `sendDirectMessageToConversation.directMessage.id` |
+| Show title + URL | parsed from the sheet's Reddit/WhatsApp/X share hrefs, which carry both verbatim |
+
+Two of those contradicted the obvious guess (results are buttons, not anchors; neither input
+has a placeholder), which is why the probe exists rather than reasoning from the rendered page.
+
+### When a send fails
+
+Run it again with `--verbose`. Every action inside the sheet is labelled, so a failure names
+the step instead of reporting a bare `locator.click: Timeout 8000ms exceeded`. It also prints
+the autocomplete's returned usernames and, if no row can be resolved, the text of every button
+in the sheet — which separates "the picker doesn't offer this account" from "we can't find
+its row", two failures that look identical from the outside.
+
+Three things learned getting the first live send working, all of them non-obvious:
+
+- **`getByRole('button', { name, exact: true })` does not match these rows**, even when the
+  button's visible text is exactly the username. The computed accessible name evidently
+  carries more than the text. Matching is done by reading `innerText` and comparing in JS
+  (`findResultIndex` in `lib/selectors.js`), which also handles the avatar-initial line and
+  truncated labels — and refuses to pick between two similar handles.
+- **Don't click text inputs.** `fill()` and `pressSequentially()` focus the field themselves
+  and skip the hit-testing a click has to pass, so a transient overlay can't stall the run.
+- **`failed` and `not-found` both mean nothing was delivered**, so `--retry-failed` can
+  safely revisit them. Everything recorded `messaged` stays untouchable.
+
 ## How it works
 
 Whatnot is a Cloudflare-protected SPA: plain HTTP requests get a **403**, and headless
@@ -87,9 +234,15 @@ So the final line tells you which happened. A stall is not a failure — just re
 
 Whatnot uses hashed CSS class names, so **all** DOM assumptions are isolated in
 `lib/selectors.js`. If a run aborts with "selectors need updating", that's the only file to fix.
-The bot deliberately fails loudly rather than silently clicking nothing.
+The bot deliberately fails loudly rather than silently clicking nothing. For the share sheet,
+`node probe.js` tells you what to put there.
+
+The follower-modal streaming (virtualization, stall recovery, reopening a dropped modal) lives
+in `lib/followerList.js` and is shared by `follow.js` and `harvest.js` — it's the subtlest code
+here and must not be duplicated.
 
 ## Caveats
 
-Automating follows is very likely against Whatnot's Terms of Service. The realistic downside is
-rate-limiting or action against your account. Use `--target` to keep runs modest.
+Automating follows and DMs is very likely against Whatnot's Terms of Service. The realistic
+downside is rate-limiting or action against your account. Keep `--target` modest — the
+messaging defaults (15/day, 45–150s apart) are set where they are for this reason.

@@ -1,12 +1,16 @@
 {
   "name": "whatnot-bot",
   "version": "1.0.0",
-  "description": "Follows every account on a given Whatnot user's Following list",
+  "description": "Whatnot automation: follow a seller's audience, and invite your own followers to your next show",
   "type": "module",
   "private": true,
   "scripts": {
     "login": "node login.js",
-    "start": "node follow.js"
+    "start": "node follow.js",
+    "harvest": "node harvest.js",
+    "status": "node status.js",
+    "message": "node message.js",
+    "probe": "node probe.js"
   },
   "dependencies": {
     "playwright": "^1.49.0"

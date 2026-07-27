@@ -84,3 +84,208 @@ export const usernameFromHref = (href) => {
   const m = /^\/user\/([^/?#]+)/.exec(href ?? '');
   return m ? m[1] : null;
 };
+
+// ── Share-sheet flow (message.js) ────────────────────────────────────────────
+// Mirrors the manual flow: Seller Hub → Shows → open the upcoming show → Share →
+// search a username → pick them → type → Send.
+//
+// VERIFIED live 2026-07-21 with probe.js, against gardenstatewildcard's own show. The
+// structure of the share modal, in DOM order:
+//
+//   <button type=button>            close (no text)
+//   <input type=text>               recipient search        ← no placeholder attribute
+//   <button>username</button> × N   autocomplete results    ← plain buttons, NOT /user/ links
+//   <input type=text>               message box             ← only exists once a recipient is
+//                                                             picked; a single-line <input>
+//   <button type=button>Send        → flips to "Message sent!"
+//   <div role=separator> then Copy link / Reddit / WhatsApp / X / Facebook / More
+//
+// Several earlier guesses were wrong and are corrected below: the results are buttons rather
+// than anchors, and neither input carries a placeholder to match on.
+
+// The seller's own shows are listed on the dashboard home as /live/<id> links.
+export const SELLER_HUB_URLS = [
+  `${BASE_URL}/dashboard/home`,
+  `${BASE_URL}/dashboard/shows`,
+  `${BASE_URL}/dashboard`,
+];
+
+export const showsTabButton = (page) =>
+  page.getByRole('tab', { name: /^shows$/i })
+    .or(page.getByRole('link', { name: /^shows$/i }))
+    .or(page.getByRole('button', { name: /^shows$/i }))
+    .first();
+
+// Show permalinks are /live/<id>; the seller's own view of the same show — the one with the
+// Share button — is /dashboard/live/<id>.
+export const showLinks = (scope) => scope.locator('a[href*="/live/"]');
+export const isShowUrl = (url) => /\/live\/[^/?#]+/.test(url ?? '');
+export const showIdFromUrl = (url) => /\/live\/([^/?#]+)/.exec(url ?? '')?.[1] ?? null;
+export const sellerShowUrl = (url) => {
+  const id = showIdFromUrl(url);
+  return id ? `${BASE_URL}/dashboard/live/${id}` : null;
+};
+
+// Whatnot renders show times as things like "Today at 8:00 PM", "Thu, Jul 24 · 8 PM EDT".
+// Scraping a time is inherently fragile and getting it wrong means telling everyone the wrong
+// start, so message.js prints whatever this finds for confirmation and takes --when as an
+// override.
+export const SHOW_TIME_RE =
+  /((today|tomorrow|mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)[a-z]*\.?,?\s*(\w{3,9}\.?\s*\d{1,2})?[^\n]{0,20}?)?\b\d{1,2}(:\d{2})?\s*(am|pm)\b[^\n]{0,12}/i;
+
+export function findShowTime(pageText) {
+  for (const line of (pageText ?? '').split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed.length > 80) continue; // paragraphs aren't schedule chips
+    const m = SHOW_TIME_RE.exec(trimmed);
+    if (m) return m[0].trim();
+  }
+  return null;
+}
+
+export const shareButton = (scope) =>
+  scope.getByRole('button', { name: /share/i })
+    .or(scope.getByLabel(/share/i))
+    .first();
+
+// The share sheet. Distinguished from the followers modal by containing a search field.
+export const shareDialog = (page) => page.locator('[role="dialog"]').last();
+
+// Both fields are bare <input type="text"> with no placeholder or label, so they can only be
+// told apart by position: search is first, and the message box only exists at all once a
+// recipient has been picked.
+export const shareTextInputs = (dialog) => dialog.locator('input[type="text"]');
+export const shareSearchInput = (dialog) => shareTextInputs(dialog).first();
+export const shareMessageInput = (dialog) => shareTextInputs(dialog).last();
+
+// Autocomplete results are plain <button>s with no /user/ href to anchor on, and their text
+// is not reliably just the username: the probe caught one rendering as "M\nmik" (an avatar
+// initial on its own line), and long handles can be visually truncated. So instead of one
+// clever locator, read every button's text and match in JS — where the rules can be explicit.
+export const shareResultButtons = (dialog) => dialog.locator('button');
+
+// Which candidate strings a button's text could contribute. A button showing an avatar
+// initial then the handle yields ["m\n28pac...", "28pac..."], and either may be the match.
+function candidateNames(text) {
+  const norm = (s) => s.replace(/\s+/g, ' ').trim().toLowerCase();
+  const lines = String(text ?? '').split('\n').map(norm).filter(Boolean);
+  const out = new Set([norm(text), ...lines]);
+  if (lines.length > 1) out.add(norm(lines.slice(1).join(' ')));
+  return [...out].filter(Boolean);
+}
+
+// Index of the single button that identifies `username`, or a reason it can't be resolved.
+// Truncated labels ("28paccktcsilenttono…") are matched as prefixes, but only long ones, and
+// only when exactly one button matches — never guess which of two similar handles was meant.
+export function findResultIndex(buttonTexts, username) {
+  const target = username.toLowerCase();
+  const exact = [];
+  const prefix = [];
+
+  buttonTexts.forEach((text, i) => {
+    for (const cand of candidateNames(text)) {
+      if (cand === target) { exact.push(i); return; }
+      const stem = cand.replace(/[…\.]+$/, '');
+      if (stem.length >= 8 && target.startsWith(stem)) { prefix.push(i); return; }
+    }
+  });
+
+  if (exact.length === 1) return { index: exact[0], how: 'exact' };
+  if (exact.length > 1) return { index: null, how: `${exact.length} exact matches` };
+  if (prefix.length === 1) return { index: prefix[0], how: 'truncated label' };
+  if (prefix.length > 1) return { index: null, how: `${prefix.length} truncated matches` };
+  return { index: null, how: 'no match' };
+}
+
+export const shareSendButton = (dialog) =>
+  dialog.getByRole('button', { name: /^send$/i }).first();
+
+// The Send button's own label after a successful send — a UI-side corroboration of the
+// mutation response.
+export const SENT_CONFIRMATION_RE = /message sent/i;
+
+// Typing a name fires this; waiting on it beats a blind sleep. It intermittently 500s
+// ("Internal server error has occured"), which is why message.js retries a search once.
+export const AUTOCOMPLETE_URL = 'operationName=AutocompleteDirectMessageRecipients';
+
+// The mutation that actually delivers the DM. As with follows, the UI updates optimistically,
+// so this response is the only trustworthy confirmation that a message was sent. Captured
+// live; the request looks like:
+//   {"operationName":"SharePageModalSendDirectMessage",
+//    "variables":{"body":"...","media":[],"participantIds":["UHVibGljVXNlck5vZGU6..."],
+//                 "tags":{"livestreamId":"<show id>"}}}
+// and a success reads:
+//   {"data":{"sendDirectMessageToConversation":{"directMessage":{"id":"01KY30..."}}}}
+export const SEND_MESSAGE_MUTATION_URL = 'operationName=SharePageModalSendDirectMessage';
+
+// participantIds is a LIST — the sheet can address several people at once. message.js reads
+// it back off the outgoing request and refuses to proceed if it isn't exactly one, because a
+// stale recipient chip would silently blast the same DM to someone already messaged.
+export function participantsInSendRequest(postData) {
+  try {
+    const ids = JSON.parse(postData ?? '{}')?.variables?.participantIds;
+    return Array.isArray(ids) ? ids : null;
+  } catch {
+    return null;
+  }
+}
+
+// The social-share anchors in the sheet carry the show's public URL and title in their query
+// strings — a far sturdier source for both than scraping headings off the page.
+//   ...reddit.com/submit?title=Share+<title>+by+<seller>&url=https%3A%2F%2F...%2Flive%2F<id>...
+export function showDetailsFromShareLinks(hrefs, { seller } = {}) {
+  let url = null;
+  let title = null;
+
+  for (const href of hrefs ?? []) {
+    let params;
+    try {
+      params = new URL(href).searchParams;
+    } catch {
+      continue;
+    }
+    for (const value of params.values()) {
+      if (!url) {
+        const m = /(https?:\/\/[^\s]*?\/live\/[0-9a-f-]+)/i.exec(decodeURIComponent(value));
+        if (m) url = m[1].split('?')[0];
+      }
+      if (!title) {
+        const decoded = decodeURIComponent(value).replace(/\+/g, ' ');
+        // Both the reddit title and the whatsapp/X body read "<title> by <seller>".
+        const m = new RegExp(`(?:^|\\n)(?:Share\\s+)?(.+?)\\s+by\\s+${seller ? escapeRe(seller) : '\\S+'}\\s*(?:\\n|$)`, 'i').exec(decoded);
+        if (m && m[1] && !/^check out this show/i.test(m[1])) title = m[1].trim();
+      }
+    }
+  }
+  return { url, title };
+}
+
+function escapeRe(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// The exact payload is unconfirmed until probe.js has been run against a real send, so this
+// is written to under-report rather than over-report: a false "sent" records someone as
+// messaged when nothing reached them, and they are never retried.
+//
+// An earlier, looser version accepted "any object with an id", which probe.js caught
+// returning true for a plain GetInboxV2UnreadConversation query response ({data:{me:{id}}}).
+// Hence the explicit gates below.
+export function sendMutationSucceeded(json) {
+  if (json?.errors?.length) return false;
+  const data = json?.data;
+  if (!data || typeof data !== 'object') return false;
+
+  // `me`/`viewer` roots are query shapes, not the result of sending anything.
+  const entries = Object.entries(data).filter(([k]) => !/^(me|viewer|currentUser)$/i.test(k));
+  if (entries.length !== 1) return false;
+
+  const [opName, root] = entries[0];
+  if (!root || typeof root !== 'object') return false;
+  if (root.success === false || root.errors?.length) return false;
+  // The operation itself has to be about sending/creating a message.
+  if (!/message|share|send|conversation/i.test(opName)) return false;
+  if (root.success === true) return true;
+  // Otherwise require a returned message id — proof the server created something.
+  return Boolean(root.message?.id ?? root.directMessage?.id ?? root.conversation?.id);
+}

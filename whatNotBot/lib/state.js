@@ -26,6 +26,13 @@ export function isDone(state, username) {
   return r === 'followed' || r === 'already';
 }
 
+// Has this user been settled at all, whatever the outcome? isDone() is follow-specific
+// (it deliberately lets 'failed' be retried); messaging needs the opposite rule — anything
+// already recorded is left alone, because a duplicate DM is worse than a missed one.
+export function has(state, username) {
+  return Object.hasOwn(state.results, username);
+}
+
 export function record(state, username, result) {
   state.results[username] = result;
   save(state);

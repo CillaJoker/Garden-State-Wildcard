@@ -32,7 +32,7 @@ export async function openBrowser({ headless = false } = {}) {
 //   1. we are actually on a whatnot.com page,
 //   2. it isn't a challenge/blank page,
 //   3. no Log in / Sign up affordance.
-export async function isLoggedIn(page) {
+export async function isLoggedIn(page, { timeout = 6000 } = {}) {
   let host;
   try {
     host = new URL(page.url()).hostname;
@@ -44,6 +44,24 @@ export async function isLoggedIn(page) {
   const title = await page.title().catch(() => '');
   if (/just a moment|attention required|sign in to/i.test(title)) return false;
 
+  // Positive proof first. The app continuously fires GraphQL queries that resolve `me`, and a
+  // response carrying me.id can only come from a live session. This exists because the DOM
+  // heuristic below gives false negatives on app routes: probe.js found /dashboard/home
+  // failing the body-length gate while the very same page was fetching me.id successfully.
+  const authed = await page
+    .waitForResponse(async (res) => {
+      if (!/graphql/i.test(res.url())) return false;
+      const json = await res.json().catch(() => null);
+      return Boolean(json?.data?.me?.id);
+    }, { timeout })
+    .then(() => true)
+    .catch(() => false);
+  if (authed) return true;
+
+  // Fallback: no such query happened to fly past in the window (a quiet, fully-loaded page).
+  // Whatnot only shows the "Log in" / "Sign up" entry points to logged-out visitors, but
+  // their absence is NOT sufficient on its own — an OAuth provider page and a Cloudflare
+  // challenge also have none, and were previously misread as a valid session.
   const bodyLen = await page.evaluate(() => document.body?.innerText?.length ?? 0).catch(() => 0);
   if (bodyLen < 400) return false; // challenge / blank / still loading
 

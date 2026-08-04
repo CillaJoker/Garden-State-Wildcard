@@ -19,6 +19,7 @@ const {
   recalcAllocations,
   clearRow,
 } = require('./sheets');
+const { planTrade, commitTrade, summarizeTrade, TradeError } = require('./trade');
 
 const token = process.env.TELEGRAM_TOKEN;
 const ownerChatId = process.env.OWNER_CHAT_ID ? Number(process.env.OWNER_CHAT_ID) : null;
@@ -41,6 +42,7 @@ const OPTIONAL_FIELDS = new Set([
   'buyer_state', 'shipping_in', 'sales_tax_paid', 'receipt_link', 'notes',
   'who_remitted', 'seller', 'grade_cert', 'value_weight', 'sale_id',
   'num_cards', 'lot_or_single', 'allocation_method', 'st3_used',
+  'counterparty', 'cash',
 ]);
 
 function filterMissing(missing) {
@@ -158,12 +160,32 @@ function buildEntrySummary(entry) {
     const itemCount = ((entry.sale.item_ids || []).length + (entry.sale.new_items || []).length) || 1;
     const previewSIds = Array.from({ length: itemCount }, (_, i) => `(S-ID ${i + 1})`);
     text = summarizeSale(entry, previewSIds);
+  } else if (entry.intent === 'trade') {
+    text = summarizeTradeEntry(entry.trade);
   } else if (entry.intent === 'expense') {
     text = summarizeExpense(entry);
   } else if (entry.intent === 'inventory') {
     text = summarizeInventory(entry);
   }
   return text.replace(/\n\nAdd this\? \(yes\/no\)\s*$/, '');
+}
+
+// Renders a parsed trade WITHOUT touching the sheet, for batch previews. The authoritative
+// check (item exists, still owned, sides balance) runs in planTrade at write time.
+function summarizeTradeEntry(t) {
+  const out = t.out || [];
+  const inc = t.in || [];
+  const sum = (a) => a.reduce((s, x) => s + Number(x.fmv || 0), 0);
+  const cash = Number(t.cash || 0);
+  const lines = [`Trade${t.counterparty ? ` with ${t.counterparty}` : ''} — ${t.date || 'today'}`, ''];
+  lines.push(`Giving up (${out.length}):`);
+  for (const o of out) lines.push(`  ${o.item_id || '(no ID)'}  $${Number(o.fmv || 0).toFixed(2)}`);
+  lines.push(`  total $${sum(out).toFixed(2)}`);
+  lines.push(`Cash: ${cash === 0 ? 'none' : cash > 0 ? `$${cash.toFixed(2)} paid` : `$${(-cash).toFixed(2)} received`}`);
+  lines.push(`Receiving (${inc.length}):`);
+  for (const i of inc) lines.push(`  $${Number(i.fmv || 0).toFixed(2)}  ${i.card || '(no card)'}`);
+  lines.push(`  total $${sum(inc).toFixed(2)}`);
+  return lines.join('\n');
 }
 
 function computeAllocatedCosts(items, cardCost, shippingIn, allocationMethod) {
@@ -267,6 +289,31 @@ async function writeSale(entry) {
   })));
 
   return { sIds, writtenRows, newInventoryRows, existingItemIds };
+}
+
+// A trade is a taxable sale on both sides — see trade.js. The plan is built at confirm time
+// (showConfirmPrompt) and stashed on the entry so the numbers the owner approved are exactly
+// the ones written.
+async function writeTrade(entry) {
+  const plan = entry._tradePlan || await planTrade(toTradeInput(entry.trade));
+  const res = await commitTrade(plan);
+  return res;
+}
+
+// Extraction shape (item_id/grade_cert) → trade.js shape (item/grade).
+function toTradeInput(t) {
+  return {
+    date: t.date,
+    counterparty: t.counterparty,
+    notes: t.notes,
+    cash: t.cash || 0,
+    total: t.total,
+    // Outgoing FMV defaults to each card's cost basis when the owner didn't value them
+    // individually — defensible, and total gain is unaffected by the split.
+    split: (t.out || []).some((o) => Number(o.fmv) > 0 || Number(o.pct) > 0) ? undefined : 'basis',
+    out: (t.out || []).map((o) => ({ item: o.item_id, fmv: o.fmv, pct: o.pct })),
+    in: (t.in || []).map((i) => ({ card: i.card, grade: i.grade_cert, qty: i.qty, fmv: i.fmv, pct: i.pct })),
+  };
 }
 
 async function writeExpense(entry) {
@@ -673,6 +720,13 @@ function makeWriteRecord(entry, result) {
       rows: [...result.writtenRows, ...(result.newInventoryRows || [])],
       saleItemIds: result.existingItemIds ?? (entry.sale?.item_ids || []),
     };
+  } else if (entry.intent === 'trade') {
+    // saleItemIds lets /undo restore the traded-away cards to In stock, same as a sale.
+    return {
+      type: 'trade', entry, tradeId: result.tradeId,
+      sIds: result.saleIds, pId: result.purchaseId, iIds: result.itemIds,
+      rows: result.rows, saleItemIds: result.outItemIds,
+    };
   } else if (entry.intent === 'expense') {
     return { type: 'expense', entry, rows: [{ tab: 'expenses', rowIndex: result.rowIdx }] };
   } else {
@@ -684,6 +738,7 @@ function makeWriteRecord(entry, result) {
 function replyLineFor(intent, rec, verb = 'Written') {
   if (intent === 'purchase')  return `✓ ${verb}: ${rec.pId}, ${rec.iIds.join(', ')}`;
   if (intent === 'sale')      return `✓ ${verb}: ${rec.sIds.join(', ')}`;
+  if (intent === 'trade')     return `✓ ${verb} ${rec.tradeId}: ${rec.sIds.join(', ')} out → ${rec.pId} / ${rec.iIds.join(', ')} in`;
   if (intent === 'expense')   return `✓ Expense ${verb === 'Written' ? 'recorded' : 'updated'}.`;
   if (intent === 'inventory') return `✓ Inventory ${rec.entry.inventory.op}: ${rec.entry.inventory.item_id || '(new)'}`;
   return '✓ Done.';
@@ -709,6 +764,7 @@ async function handleConfirm(chatId, text) {
           let result;
           if (entry.intent === 'purchase')       result = await writePurchase(entry);
           else if (entry.intent === 'sale')       result = await writeSale(entry);
+          else if (entry.intent === 'trade')      result = await writeTrade(entry);
           else if (entry.intent === 'expense')    result = await writeExpense(entry);
           else if (entry.intent === 'inventory')  result = await writeInventory(entry);
 
@@ -750,6 +806,8 @@ async function handleConfirm(chatId, text) {
         result = state.isEdit && lw ? await writePurchaseInPlace(entry, lw) : await writePurchase(entry);
       else if (entry.intent === 'sale')
         result = state.isEdit && lw ? await writeSaleInPlace(entry, lw) : await writeSale(entry);
+      else if (entry.intent === 'trade')
+        result = await writeTrade(entry);
       else if (entry.intent === 'expense')
         result = state.isEdit && lw ? await writeExpenseInPlace(entry, lw) : await writeExpense(entry);
       else if (entry.intent === 'inventory')
@@ -935,6 +993,27 @@ async function handleCardResolution(chatId, text, state) {
 // ── Shared confirm prompt ──────────────────────────────────────────────────
 
 async function showConfirmPrompt(chatId, entry) {
+  // Trades resolve against the sheet before confirming (item exists, still owned, sides
+  // balance) so the owner sees any problem BEFORE approving, and the plan they approve is
+  // exactly what gets written.
+  if (entry.intent === 'trade') {
+    let plan;
+    try {
+      plan = await planTrade(toTradeInput(entry.trade));
+    } catch (err) {
+      if (err instanceof TradeError) {
+        await sendLong(chatId, `Can't record that trade:\n\n${err.message}`);
+        return;
+      }
+      throw err;
+    }
+    entry._tradePlan = plan;
+    const confirmText = summarizeTrade(plan, { withPrompt: true });
+    pending.set(chatId, { entry, confirmText });
+    await sendLong(chatId, confirmText);
+    return;
+  }
+
   let confirmText = '';
   try {
     if (entry.intent === 'purchase') {
@@ -968,7 +1047,7 @@ async function processMessage(chatId, text) {
   }
 
   if (entry.intent === 'unknown') {
-    await bot.sendMessage(chatId, "I didn't understand that. Try something like:\n• \"bought 20 commons for $15 at a show\"\n• \"sold I-0004 on eBay for $120\"\n• \"spent $25 grading at PSA\"");
+    await bot.sendMessage(chatId, "I didn't understand that. Try something like:\n• \"bought 20 commons for $15 at a show\"\n• \"sold I-0004 on eBay for $120\"\n• \"traded I-0101 ($120) for a Prizm worth $120\"\n• \"spent $25 grading at PSA\"");
     return;
   }
 
@@ -1075,6 +1154,9 @@ bot.onText(/\/help/, async (msg) => {
     `*Examples:*\n\n` +
     `*Purchase:*\n"bought 20 commons for $15 at a show"\n\n` +
     `*Sale:*\n"sold I-0004 on eBay for $120"\n"sold a 1989 Griffey Upper Deck raw on Whatnot for $45" (pre-existing card, no inventory ID needed)\n\n` +
+    `*Trade:*\n"traded I-0101 and I-0102 for a Caleb Williams Prizm PSA 10. Total trade valued at 250"\n` +
+    `Then, when asked for the split, reply with percentages:\n"Caleb Williams 100"  — or for several cards back: "Colorblast 15, Jon Jones 65, Skattebo 20"\n` +
+    `_Outgoing cards need I-#### IDs. Give a total and I'll ask how to split it across the cards you received — that split becomes each new card's cost basis. Cards you give up default to their cost basis. A trade is a taxable sale: it books barter income at FMV on both sides._\n\n` +
     `*Expense:*\n"spent $25 grading a card at PSA"\n\n` +
     `*Batch (label each entry):*\n` +
     `Purchase: bought 20 commons for $15 at a show\n` +

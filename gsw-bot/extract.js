@@ -14,22 +14,22 @@ const RECORD_ENTRY_TOOL = {
     properties: {
       intent: {
         type: 'string',
-        enum: ['purchase', 'sale', 'expense', 'inventory', 'unknown'],
+        enum: ['purchase', 'sale', 'trade', 'expense', 'inventory', 'unknown'],
       },
       purchase: {
         type: 'object',
         properties: {
           date:              { type: 'string', description: 'YYYY-MM-DD' },
           seller:            { type: 'string' },
-          channel:           { type: 'string', enum: ['Whatnot', 'eBay', 'Direct', 'Show', 'Private', 'Other'] },
+          channel:           { type: 'string', enum: VALIDATION.purchasesChannel },
           description:       { type: 'string' },
-          lot_or_single:     { type: 'string', enum: ['Lot', 'Single'] },
+          lot_or_single:     { type: 'string', enum: VALIDATION.lotOrSingle },
           num_cards:         { type: 'number' },
           card_cost:         { type: 'number' },
           shipping_in:       { type: 'number' },
           sales_tax_paid:    { type: 'number' },
-          st3_used:          { type: 'string', enum: ['Y', 'N'] },
-          allocation_method: { type: 'string', enum: ['EVEN', 'WEIGHTED'] },
+          st3_used:          { type: 'string', enum: VALIDATION.st3Used },
+          allocation_method: { type: 'string', enum: VALIDATION.allocationMethod },
           items: {
             type: 'array',
             items: {
@@ -50,7 +50,7 @@ const RECORD_ENTRY_TOOL = {
         type: 'object',
         properties: {
           date:                 { type: 'string', description: 'YYYY-MM-DD' },
-          platform:             { type: 'string', enum: ['Whatnot', 'eBay', 'CollX', 'Direct', 'Show', 'Other'] },
+          platform:             { type: 'string', enum: VALIDATION.salesPlatform },
           order_no:             { type: 'string' },
           item_ids:             { type: 'array', items: { type: 'string' } },
           purchase_ids: {
@@ -79,7 +79,7 @@ const RECORD_ENTRY_TOOL = {
           shipping_charged:     { type: 'number' },
           platform_fees:        { type: 'number' },
           sales_tax_collected:  { type: ['number', 'null'] },
-          who_remitted:         { type: 'string', enum: ['Platform', 'Me'] },
+          who_remitted:         { type: 'string', enum: VALIDATION.whoRemitted },
           buyer_state:          { type: 'string' },
           notes:                { type: 'string' },
         },
@@ -88,7 +88,7 @@ const RECORD_ENTRY_TOOL = {
         type: 'object',
         properties: {
           date:        { type: 'string', description: 'YYYY-MM-DD' },
-          category:    { type: 'string', enum: ['Shipping supplies', 'Grading / cert fees', 'Software', 'Subscriptions', 'Marketplace fees', 'Mileage', 'Office', 'Inventory tax paid', 'Other'] },
+          category:    { type: 'string', enum: VALIDATION.expensesCategory },
           vendor:      { type: 'string' },
           description: { type: 'string' },
           amount:      { type: 'number' },
@@ -106,8 +106,45 @@ const RECORD_ENTRY_TOOL = {
           grade_cert:   { type: 'string' },
           qty:          { type: 'number' },
           value_weight: { type: ['number', 'null'] },
-          status:       { type: 'string', enum: ['In stock', 'Listed', 'Sold'] },
+          status:       { type: 'string', enum: VALIDATION.inventoryStatus },
           sale_id:      { type: 'string' },
+        },
+      },
+      trade: {
+        type: 'object',
+        description: 'A barter swap: cards given up for cards received, optionally with cash on either side.',
+        properties: {
+          date:         { type: 'string', description: 'YYYY-MM-DD' },
+          counterparty: { type: 'string', description: 'Who the trade was with' },
+          total:        { type: 'number', description: 'The agreed total value of the trade, when the owner states one ("total trade valued at 590"). Set this INSTEAD of computing per-card values.' },
+          out: {
+            type: 'array',
+            description: 'Cards GIVEN UP. Each needs an I-#### Item ID.',
+            items: {
+              type: 'object',
+              properties: {
+                item_id: { type: 'string', description: 'I-#### only' },
+                fmv:     { type: 'number', description: 'Dollar value, ONLY if the owner stated one for this specific card' },
+                pct:     { type: 'number', description: 'Percent of the trade total, ONLY if the owner stated a percentage for this card' },
+              },
+            },
+          },
+          in: {
+            type: 'array',
+            description: 'Cards RECEIVED.',
+            items: {
+              type: 'object',
+              properties: {
+                card:       { type: 'string' },
+                grade_cert: { type: 'string' },
+                qty:        { type: 'number' },
+                fmv:        { type: 'number', description: 'Dollar value, ONLY if the owner stated one for this specific card' },
+                pct:        { type: 'number', description: 'Percent of the trade total, ONLY if the owner stated a percentage for this card' },
+              },
+            },
+          },
+          cash:  { type: 'number', description: 'Positive if the owner PAID cash, negative if the owner RECEIVED cash. 0 if none.' },
+          notes: { type: 'string' },
         },
       },
       missing:     { type: 'array', items: { type: 'string' }, description: 'Field names that are required but not provided or inferable' },
@@ -164,10 +201,44 @@ TODAY'S DATE: ${today}
 - If not mentioned at all, default to 0
 - Do NOT default to 0 if the user mentions a fee — extract the actual amount
 
+## Trades
+- intent="trade" when the owner swaps card(s) for card(s) — "traded", "swapped", "dealt X for Y".
+  A trade IS a taxable sale, so it is recorded on both sides; do NOT extract it as intent="sale".
+- If cards were given up purely for CASH with nothing received back, that is intent="sale", not a trade.
+- trade.out[]: cards given up. Each REQUIRES an I-#### item_id — trades cannot be resolved by card
+  name yet. If the owner names a card without an I-#### ID, add "out item_id (I-####)" to missing[].
+- trade.in[]: cards received, with a description and fmv each.
+- NEVER do the money arithmetic yourself. Do not divide a total across cards, and do not invent
+  per-card values. The bot splits totals exactly to the cent; your arithmetic will be a cent off
+  and the trade will be rejected.
+  - Owner states a single total ("Total Trade valued at 590") → set trade.total = 590 and leave
+    every fmv/pct unset. The bot splits it.
+  - Owner states a value for a specific card → set that card's fmv.
+  - Owner states a percentage for a card → set that card's pct.
+- Percentages usually arrive in a SECOND message naming each received card with a number, e.g.
+  "Colorblast 15, Jon Jones 65, Skattebo auto 10, Skattebo patch 5, Tyler Warren 3, TET 2".
+  Match each number to the incoming card whose description it names and set that card's pct.
+  Bare numbers after card names mean percent, not dollars, when they add up to about 100.
+- cash sign: decide by WHICH SIDE OF THE WORD "for" the money sits on. Cash grouped with the
+  owner's cards (before "for") was PAID BY the owner → POSITIVE. Cash grouped with the cards
+  received (after "for") was PAID TO the owner → NEGATIVE. 0 when unmentioned.
+  - "traded I-0120 AND $20 for a Ravens auto"      → cash = +20  (owner paid; $20 is on their side)
+  - "traded I-0120 for a Ravens auto AND $20"      → cash = -20  (owner received)
+  - "traded I-0120 plus $50 from me for X"         → cash = +50
+  - "traded I-0120 for X and they threw in $50"    → cash = -50
+  - "traded I-0120 for X, I kicked in $30"         → cash = +30
+  Getting this backwards misstates the acquired card's cost basis by twice the cash, so when the
+  phrasing is genuinely ambiguous put "cash direction" in missing[] rather than guessing.
+- The two sides must balance: sum(in.fmv) = sum(out.fmv) + cash. If the owner's numbers do not
+  balance, still extract exactly what they said — the bot reports the mismatch rather than guessing.
+- Required (add to missing[] if absent): out item_id, in card, and SOME value information —
+  either trade.total, or an fmv/pct on the cards. Never add out fmv / in fmv to missing[] when
+  trade.total is set.
+
 ## missing[] rules
 - Only add a field to missing[] if it is required and not inferable
 - Required: expense.amount; sale.item_ids (if no I-#### given AND no purchase_ids AND no card_descriptions AND no new_items); purchase.card_cost
-- NEVER add these to missing[] — they are always optional: sale.order_no, sale.shipping_charged, sale.platform_fees, sale.sales_tax_collected, sale.buyer_state, sale.notes, purchase.shipping_in, purchase.sales_tax_paid, purchase.receipt_link, purchase.notes, expense.receipt_link, expense.notes
+- NEVER add these to missing[] — they are always optional: sale.order_no, sale.shipping_charged, sale.platform_fees, sale.sales_tax_collected, sale.buyer_state, sale.notes, purchase.shipping_in, purchase.sales_tax_paid, purchase.receipt_link, purchase.notes, expense.receipt_link, expense.notes, trade.counterparty, trade.cash, trade.notes, trade.grade_cert
 - Do NOT add optional fields or fields with valid defaults
 
 ## assumptions[] style
@@ -176,7 +247,7 @@ TODAY'S DATE: ${today}
 - Do NOT explain why a default was chosen
 
 ## unknown intent
-- Use intent="unknown" only if the message is clearly not a purchase, sale, expense, or inventory operation`;
+- Use intent="unknown" only if the message is clearly not a purchase, sale, trade, expense, or inventory operation`;
 }
 
 async function extractEntry(userMessage, today) {
@@ -207,7 +278,7 @@ async function extractEntry(userMessage, today) {
 // route Purchase IDs (P-####) into sale.purchase_ids and clear false "missing" flags.
 function normalizeEntry(input, userMessage, today) {
   // Date always defaults to today, so it must never be reported as missing.
-  for (const key of ['purchase', 'sale', 'expense']) {
+  for (const key of ['purchase', 'sale', 'trade', 'expense']) {
     if (input[key] && !input[key].date) input[key].date = today;
   }
   if (Array.isArray(input.missing)) {
@@ -215,6 +286,22 @@ function normalizeEntry(input, userMessage, today) {
       const field = m.includes('.') ? m.split('.').pop() : m;
       return field !== 'date';
     });
+  }
+
+  // A trade's INCOMING split becomes each new card's permanent cost basis, so never let an
+  // even split happen silently across several cards — ask for it. (The OUTGOING split only
+  // affects per-row gross profit; total gain is the same either way, so it defaults to cost
+  // basis without prompting.)
+  if (input.intent === 'trade' && input.trade) {
+    const inc = input.trade.in || [];
+    const valued = (e) => Number(e.fmv) > 0 || Number(e.pct) > 0;
+    if (inc.length > 1 && !inc.some(valued)) {
+      input.missing = [
+        `the value split across the ${inc.length} cards you received — percentages or dollar values ` +
+        `(${inc.map((e) => e.card).filter(Boolean).join(', ')})`,
+        ...(Array.isArray(input.missing) ? input.missing : []),
+      ];
+    }
   }
 
   if (input.intent !== 'sale' || !input.sale) return input;

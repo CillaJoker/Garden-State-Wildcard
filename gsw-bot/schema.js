@@ -5,7 +5,19 @@ const TAB_NAMES = {
   inventory: 'Inventory',
   sales: 'Sales',
   expenses: 'Expenses',
+  dashboard: 'Dashboard',
+  salesTax: 'Sales Tax (Direct)',
 };
+
+// The 1099-K platform watch on the Dashboard: one row per platform, name in D, payout/txn
+// formulas in E/F. Read this range to learn which platforms are actually watched rather than
+// hardcoding a list that silently goes stale when a platform is added.
+const DASHBOARD_PLATFORM_RANGE = 'D5:F30';
+
+// Sales platforms that are intentionally NOT on the 1099-K watch. A trade is barter: no
+// processor, no payout, no 1099-K. Without this, audit-sales.js would flag 'Trade' as an
+// untracked platform forever.
+const PLATFORMS_EXEMPT_FROM_1099K = ['Trade'];
 
 const ID_PREFIXES = {
   purchases: 'P',
@@ -15,9 +27,9 @@ const ID_PREFIXES = {
 
 // Input runs: only these ranges are written by the bot (formula columns are skipped)
 const INPUT_RUNS = {
-  purchases: ['A:I', 'K:M', 'P:Q'],
+  purchases: ['A:I', 'K:M', 'P:S'],
   inventory: ['A:I'],
-  sales: ['A:K', 'O:P'],
+  sales: ['A:K', 'O:R'],
   expenses: ['A:G'],
 };
 
@@ -41,6 +53,9 @@ const COLUMN_MAPS = {
     { col: 15, letter: 'O', field: 'Reconciliation',     type: 'FORMULA' },
     { col: 16, letter: 'P', field: 'Receipt link',       type: 'INPUT' },
     { col: 17, letter: 'Q', field: 'Notes',              type: 'INPUT' },
+    { col: 18, letter: 'R', field: 'Trade ID',           type: 'INPUT' },
+    { col: 19, letter: 'S', field: 'Trade cash ($)',     type: 'INPUT' },
+    { col: 20, letter: 'T', field: 'Trade reconciliation', type: 'FORMULA' },
   ],
   inventory: [
     { col: 1, letter: 'A', field: 'Item ID',             type: 'INPUT' },
@@ -70,6 +85,8 @@ const COLUMN_MAPS = {
     { col: 14, letter: 'N', field: 'Gross profit ($)',        type: 'FORMULA' },
     { col: 15, letter: 'O', field: 'Buyer state',             type: 'INPUT' },
     { col: 16, letter: 'P', field: 'Notes',                   type: 'INPUT' },
+    { col: 17, letter: 'Q', field: 'Sale status',             type: 'INPUT' },
+    { col: 18, letter: 'R', field: 'Trade ID',                type: 'INPUT' },
   ],
   expenses: [
     { col: 1, letter: 'A', field: 'Date',         type: 'INPUT' },
@@ -83,13 +100,19 @@ const COLUMN_MAPS = {
 };
 
 const VALIDATION = {
-  purchasesChannel:    ['Whatnot', 'eBay', 'Direct', 'Show', 'Private', 'Other'],
+  purchasesChannel:    ['Whatnot', 'eBay', 'Direct', 'Show', 'Private', 'Trade', 'Other'],
   lotOrSingle:         ['Lot', 'Single'],
   st3Used:             ['Y', 'N'],
   allocationMethod:    ['EVEN', 'WEIGHTED'],
   inventoryStatus:     ['In stock', 'Listed', 'Sold'],
-  salesPlatform:       ['Whatnot', 'eBay', 'CollX', 'Direct', 'Show', 'Other'],
+  // 'Trade' = barter. Keep it OFF the Dashboard 1099-K watch (see PLATFORMS_EXEMPT_FROM_1099K):
+  // the watch SUMIFs by platform name, so omitting it excludes trades from payout totals.
+  salesPlatform:       ['Whatnot', 'eBay', 'CollX', 'Direct', 'Show', 'Trade', 'Other'],
   whoRemitted:         ['Platform', 'Me'],
+  // Blank == Completed. 'Unwound' = deal reversed, item returned to inventory: forces COGS
+  // to 0 and suppresses the audit's "item still In stock" / "zero price" checks.
+  // 'Refunded' = money returned but the item did NOT come back, so COGS still applies.
+  saleStatus:          ['Completed', 'Unwound', 'Refunded'],
   expensesCategory:    [
     'Shipping supplies',
     'Grading / cert fees',
@@ -103,4 +126,21 @@ const VALIDATION = {
   ],
 };
 
-module.exports = { TAB_NAMES, ID_PREFIXES, INPUT_RUNS, COLUMN_MAPS, VALIDATION };
+// Purchases col T — a trade's incoming value must equal what you gave up, adjusted for cash
+// boot: H (incoming FMV) = SUM(linked trade sale prices) + S (+paid / -received).
+const tradeReconFormula = (r) =>
+  `=IF($R${r}="","",IF(ABS($H${r}-(SUMIF(Sales!$R:$R,$R${r},Sales!$G:$G)+N($S${r})))<0.01,"OK",` +
+  `"CHECK: off by "&TEXT($H${r}-(SUMIF(Sales!$R:$R,$R${r},Sales!$G:$G)+N($S${r})),"$0.00")))`;
+
+// Inventory col G — the standard live allocated-cost formula (per-card share of the lot).
+// Kept here so record-trade.js and fill-alloc.js cannot drift apart.
+const allocCostFormula = (r) =>
+  `=IF(B${r}="","",IFERROR(IF(VLOOKUP(B${r},Purchases!$A:$M,13,FALSE())="WEIGHTED",` +
+  `VLOOKUP(B${r},Purchases!$A:$J,10,FALSE())*F${r}/SUMIF($B:$B,B${r},$F:$F),` +
+  `VLOOKUP(B${r},Purchases!$A:$J,10,FALSE())*E${r}/SUMIF($B:$B,B${r},$E:$E)),""))`;
+
+module.exports = {
+  TAB_NAMES, ID_PREFIXES, INPUT_RUNS, COLUMN_MAPS, VALIDATION,
+  DASHBOARD_PLATFORM_RANGE, PLATFORMS_EXEMPT_FROM_1099K,
+  tradeReconFormula, allocCostFormula,
+};

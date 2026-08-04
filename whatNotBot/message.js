@@ -13,7 +13,7 @@
 // visible than a follow, and the pace is the whole point.
 import { openBrowser, isLoggedIn, sleep } from './lib/browser.js';
 import * as S from './lib/selectors.js';
-import { compose } from './lib/messages.js';
+import { compose, composeLiveNow } from './lib/messages.js';
 import { load, save, has, record } from './lib/state.js';
 
 const args = process.argv.slice(2);
@@ -38,6 +38,11 @@ const VERBOSE = args.includes('--verbose');
 // missed one. But a 'failed' record often means the send never happened at all — this lets
 // you retry those deliberately, once you've checked your DMs and know nothing went out.
 const RETRY_FAILED = args.includes('--retry-failed');
+// The "we're live NOW" second touch. Instead of inviting from the roster, it re-messages the
+// people already invited to THIS show (recorded 'messaged') with a short come-watch nudge —
+// closing the invite → bookmark → viewer loop at go-live time. Its own state file and message
+// set; the 7-day cooldown is bypassed because this is a deliberate same-night second contact.
+const LIVE_NOW = args.includes('--live-now');
 // Days a follower is off-limits after any invite, across all shows. The per-show exclusion
 // list alone would happily message the same person every time you go live; this is what keeps
 // a promo tool from turning into a nuisance. --cooldown 0 disables it for a deliberate push.
@@ -74,16 +79,31 @@ let stopReason = null;
 // re-invites everyone while a rerun of the SAME show can never double-send.
 let sent = null;
 let sentKey = null;
+// In --live-now mode, the invite state is the SOURCE of recipients (who we already messaged),
+// while `sent` (the livenow-<showId> file) is the dedup/outcome record for the nudge itself.
+let inviteState = null;
 
 function loadShowState(showId) {
-  sentKey = `${ME}-messaged-${showId}`;
+  sentKey = LIVE_NOW ? `${ME}-livenow-${showId}` : `${ME}-messaged-${showId}`;
   sent = load(sentKey);
+  if (LIVE_NOW) inviteState = load(`${ME}-messaged-${showId}`);
   return sent;
 }
 
 const daysSince = (iso) => (Date.now() - new Date(iso).getTime()) / 86_400_000;
 
 function chooseRecipients() {
+  // Live-now (without an explicit --only) draws from the people already invited to THIS show,
+  // not the roster. Cooldown is intentionally not applied — they were invited today and this
+  // is the same-night reminder.
+  if (LIVE_NOW && !ONLY.length) {
+    const invited = Object.keys(inviteState.results).filter((u) => inviteState.results[u] === 'messaged');
+    return invited.filter((u) => {
+      if (RETRY_FAILED && ['failed', 'not-found'].includes(sent.results[u])) return true;
+      if (has(sent, u)) { stats.skipped++; return false; } // already nudged for this show
+      return true;
+    }).slice(0, LIMIT);
+  }
   return (ONLY.length ? ONLY : roster.order).filter((u) => {
     // Both 'failed' and 'not-found' mean nothing reached them, so both are safe to retry.
     if (RETRY_FAILED && ['failed', 'not-found'].includes(sent.results[u])) return true;
@@ -115,7 +135,10 @@ function summary(reason) {
 const recent = new Set(contacts.recent);
 // Always single-line: probe.js confirmed the share sheet's message box is a bare
 // <input type="text">, which can't hold a line break at all.
-const messageFor = (username) => compose({ username, show, avoid: recent, singleLine: true });
+const messageFor = (username) =>
+  LIVE_NOW
+    ? composeLiveNow({ username, avoid: recent, singleLine: true })
+    : compose({ username, show, avoid: recent, singleLine: true });
 
 // ── resolve the show ─────────────────────────────────────────────────────────
 // Everything downstream is an invitation to a specific show. If we can't establish which
@@ -154,7 +177,9 @@ async function resolveShow(page) {
 
   const bodyText = await page.evaluate(() => document.body?.innerText ?? '').catch(() => '');
   const when = WHEN_OVERRIDE ?? S.findShowTime(bodyText);
-  if (!when) {
+  // Live-now messages don't reference a time ("we're on RIGHT NOW"), so a missing show time is
+  // fine there. For an invite it's fatal — a wrong/absent time would mislead every recipient.
+  if (!when && !LIVE_NOW) {
     throw new Error(
       'Could not read the show time off the page. Pass --when "Thursday at 8pm ET" ' +
       '— guessing here would put the wrong time in front of everyone.'
@@ -379,12 +404,28 @@ const showId = S.showIdFromUrl(show.url) ?? 'unknown';
 loadShowState(showId);
 recipients = chooseRecipients();
 
-console.log(`\nShow:  ${show.title ?? '(no title read)'}`);
-console.log(`When:  ${show.when}${WHEN_OVERRIDE ? '  [--when override]' : '  [read off the page — check this]'}`);
+console.log(`\n${LIVE_NOW ? '🔴 LIVE-NOW NUDGE\n' : ''}Show:  ${show.title ?? '(no title read)'}`);
+if (LIVE_NOW) {
+  console.log(`When:  live now (no time in the message)`);
+} else {
+  console.log(`When:  ${show.when}${WHEN_OVERRIDE ? '  [--when override]' : '  [read off the page — check this]'}`);
+}
 console.log(`URL:   ${show.url}`);
 console.log(`State: state/${sentKey}.json`);
 
 if (!recipients.length) {
+  if (LIVE_NOW) {
+    const invitedCount = Object.values(inviteState.results).filter((r) => r === 'messaged').length;
+    console.error(
+      invitedCount
+        ? `\nEveryone invited to this show has already been nudged (${stats.skipped} done). ` +
+          `Nothing left to remind — or --retry-failed to re-attempt drops.`
+        : `\nNo one has been invited to this show yet, so there's nobody to nudge. ` +
+          `Run \`node message.js ${ME} --show-url <url>\` (the invite) first.`
+    );
+    await context.close();
+    process.exit(1);
+  }
   const why = [];
   if (stats.skipped) why.push(`${stats.skipped} already messaged for this show`);
   if (stats.cooling) why.push(`${stats.cooling} inside the ${COOLDOWN_DAYS}-day cooldown`);

@@ -59,17 +59,17 @@ export const SLOTS = {
     'max shipping all show 🙌',
   ],
 
-  // Giveaway incentive: every 30 entrants triggers an HFA ("hit for all") starting at $1.
+  // Giveaway incentive: every 30 entrants triggers a NUKE ("hit for all") starting at $1.
   // Like perks, this is a standing claim — empty this array for any show that isn't running
-  // the promo. The "30 → HFA" mechanic is stated concretely so it reads as a reason to enter.
+  // the promo. The "30 → NUKE" mechanic is stated concretely so it reads as a reason to enter.
   giveaways: [
-    'every 30 people in the giveaway = a HFA starting at just a dollar',
-    'we hit 30 in the giveaway, we run a HFA starting at $1',
-    'for every 30 in the giveaway we drop a HFA starting at a buck',
-    'each time the giveaway hits 30 we run a HFA from a dollar',
-    '30 in the giveaway = a HFA starting at $1, every single time',
-    'we run a HFA starting at a dollar for every 30 people in the giveaway',
-    'hit 30 in the giveaway and a HFA goes off starting at $1',
+    'every 30 people in the giveaway = a NUKE starting at just a dollar',
+    'we hit 30 in the giveaway, we run a NUKE starting at $1',
+    'for every 30 in the giveaway we drop a NUKE starting at a buck',
+    'each time the giveaway hits 30 we run a NUKE from a dollar',
+    '30 in the giveaway = a NUKE starting at $1, every single time',
+    'we run a NUKE starting at a dollar for every 30 people in the giveaway',
+    'hit 30 in the giveaway and a NUKE goes off starting at $1',
   ],
 
   ctas: [
@@ -95,6 +95,64 @@ export const SLOTS = {
     'appreciate you 🙌',
     'dont sleep on this one',
   ],
+
+  // Closing gratitude. Unlike every other slot this one is MANDATORY — it always lands as the
+  // final beat, so every message signs off with a thank-you. Kept distinct from the (optional,
+  // up-front) `hooks`, which thank for the follow specifically, so the two don't read as a
+  // stutter when both appear.
+  thanks: [
+    'thanks for being here 🙏',
+    'thank you for the support',
+    'appreciate you as always 🙏',
+    'thanks again, truly',
+    'grateful to have you with us',
+    'thanks for rocking with us ❤️',
+    'thank you, means a lot',
+    'appreciate the love 🙌',
+  ],
+};
+
+// The "we're live NOW" second touch (see `composeLiveNow`). A different job from the invite:
+// no future time, no bookmark ask (you can't bookmark a show that's already on) — just a short,
+// urgent reminder to come watch. Openers and the mandatory closing thanks are shared with the
+// invite slots; the middle beats are live-specific.
+export const LIVE_SLOTS = {
+  openers: SLOTS.openers,
+
+  // The "we're on" line. Mandatory — it's the whole point of the message.
+  live: [
+    'were LIVE right now 🔥',
+    'the show just kicked off',
+    'we just went live',
+    'live now — doors are open 🔴',
+    'were on and going right now',
+    'stream is live this second',
+    'we just hit go live 🔥',
+  ],
+
+  // One short why-now beat. Optional. NOTE: like the invite's perks/giveaways these are
+  // standing claims — trim for any show not running $1 singles / max shipping / the NUKE.
+  reasons: [
+    'max shipping all show 📦',
+    '$1 singles rolling now',
+    'first NUKE is coming up',
+    'deals already flying',
+    'its stacked tonight',
+    'max shipping so stack em up 🙌',
+  ],
+
+  // Come-watch, NEVER bookmark — the show is already live.
+  ctas: [
+    'come thru 🔥',
+    'pull up!',
+    'tap in',
+    'hop in the chat',
+    'jump in before you miss it',
+    'slide in real quick',
+    'come hang with us',
+  ],
+
+  thanks: SLOTS.thanks,
 };
 
 // cyrb53 — a small, well-distributed string hash. Just needs to spread usernames across
@@ -177,11 +235,31 @@ function buildOnce(rand, { username, show, singleLine }) {
     giveaway: withGiveaway ? pick(SLOTS.giveaways) : null,
     cta: pick(SLOTS.ctas),
     signoff: withSignoff ? pick(SLOTS.signoffs) : null,
+    thanks: pick(SLOTS.thanks), // mandatory closing gratitude — always the last beat
   };
+
+  // The closing thank-you now carries the gratitude, so a gratitude-flavored sign-off right
+  // before it would stutter ("appreciate you 🙌. thank you..."). Drop that sign-off in favor
+  // of the mandatory thanks.
+  if (chosen.signoff && /\b(appreciate|thanks?|thank you|grateful)\b/i.test(chosen.signoff)) {
+    chosen.signoff = null;
+  }
+  // A gratitude hook up front is fine (it thanks for the follow specifically) and bookends
+  // nicely with the closing thanks — EXCEPT when both reuse the same gratitude verb, e.g.
+  // "...appreciate it" up top and "appreciate you..." at the end. Drop the hook in just that
+  // case. Check EVERY gratitude token (a hook can hold two, like "thanks... appreciate it"),
+  // normalizing "thanks"→"thank" so the plural doesn't dodge the match.
+  if (chosen.hook) {
+    const grats = (s) => (s.toLowerCase().match(/appreciate|thanks|thank|grateful/g) || []).map((w) => w.replace(/^thanks$/, 'thank'));
+    const hookGrats = new Set(grats(chosen.hook));
+    if (grats(chosen.thanks).some((g) => hookGrats.has(g))) chosen.hook = null;
+  }
 
   // Length cap for the heaviest shape: two promo lines is already plenty, so when both the
   // perk AND the giveaway are in, drop the softer beats (thank-you hook, sign-off) rather than
-  // ship a 340-char DM. Derived from values already drawn, so determinism is unaffected.
+  // ship a 340-char DM. The mandatory `thanks` is intentionally NOT dropped here — every
+  // message keeps its closing thank-you. Derived from values already drawn, so determinism
+  // is unaffected.
   if (chosen.perk && chosen.giveaway) {
     chosen.hook = null;
     chosen.signoff = null;
@@ -209,6 +287,7 @@ function buildOnce(rand, { username, show, singleLine }) {
   }
 
   if (chosen.signoff) parts.push(fill(chosen.signoff, vars));
+  parts.push(fill(chosen.thanks, vars)); // always closes on a thank-you
 
   // Line breaks vs. one paragraph, and whether sentences get terminal punctuation.
   // `singleLine` suppresses the multi-line shape without changing how many values are drawn
@@ -242,6 +321,7 @@ function buildOnce(rand, { username, show, singleLine }) {
     chosen.giveaway,
     chosen.cta,
     chosen.signoff,
+    chosen.thanks,
     joined,
     multiline,
   ].join('|');
@@ -263,11 +343,83 @@ export function compose({ username, show, avoid = new Set(), singleLine = true, 
   return last; // exhausted — better a repeat than no message
 }
 
+// ── live-now nudge ─────────────────────────────────────────────────────────────
+// A separate, shorter shape for the "we're live, come thru" second touch. Reuses every
+// primitive above (hash, rng, fill, cap, the paragraph/multiline assembly, the fingerprint
+// dedup) — only the slot pool and the fragment order differ from `buildOnce`.
+function buildLiveOnce(rand, { username, singleLine }) {
+  const pick = (arr) => arr[Math.floor(rand() * arr.length)];
+  const vars = { name: username };
+
+  const withOpener = rand() < 0.8;
+  const withReason = rand() < 0.7;
+
+  const chosen = {
+    opener: withOpener ? pick(LIVE_SLOTS.openers) : null,
+    live: pick(LIVE_SLOTS.live),
+    reason: withReason ? pick(LIVE_SLOTS.reasons) : null,
+    cta: pick(LIVE_SLOTS.ctas),
+    thanks: pick(LIVE_SLOTS.thanks), // mandatory closing gratitude, same as the invite
+  };
+
+  const parts = [];
+  if (chosen.opener) parts.push(fill(chosen.opener, vars));
+
+  // The "we're live" line and the come-watch ask are sometimes one breath, sometimes two.
+  const joined = rand() < 0.5;
+  const live = fill(chosen.live, vars);
+  const cta = fill(chosen.cta, vars);
+  const reason = chosen.reason ? fill(chosen.reason, vars) : null;
+  if (joined) {
+    parts.push(reason ? `${live} — ${reason}` : `${live} — ${cta}`);
+    if (reason) parts.push(cta);
+  } else {
+    parts.push(live);
+    if (reason) parts.push(reason);
+    parts.push(cta);
+  }
+  parts.push(fill(chosen.thanks, vars)); // always closes on a thank-you
+
+  const multiline = rand() < 0.3 && !singleLine;
+  const punctuate = rand() < 0.5;
+
+  let text;
+  if (multiline) {
+    text = parts
+      .map((p) => cap(stripJoiner(p), username))
+      .map((p) => (punctuate && !endsPunctuated(p) ? `${p}.` : p))
+      .join('\n');
+  } else {
+    text = parts.reduce((acc, p, i) => {
+      if (i === 0) return cap(p, username);
+      if (endsPunctuated(acc)) return `${acc} ${p}`;
+      return `${acc}${punctuate ? '.' : ','} ${p}`;
+    }, '');
+    if (punctuate && !endsPunctuated(text)) text += '.';
+  }
+
+  const fingerprint = [chosen.opener, chosen.live, chosen.reason, chosen.cta, chosen.thanks, joined, multiline].join('|');
+  return { text: text.trim(), fingerprint };
+}
+
+// Same contract as `compose` — deterministic per username, deduped against `avoid` — but seeded
+// in its own space ("live:") so a person's live-now nudge never coincides with their invite text.
+export function composeLiveNow({ username, avoid = new Set(), singleLine = true, maxTries = 40 }) {
+  const base = hashString(`live:${username}`);
+  let last = null;
+  for (let i = 0; i < maxTries; i++) {
+    const rand = rng((base + i * 0x9e3779b1) >>> 0);
+    last = buildLiveOnce(rand, { username, singleLine });
+    if (!avoid.has(last.fingerprint)) return last;
+  }
+  return last; // exhausted — better a repeat than no message
+}
+
 // Rough count of distinct messages the slots can produce, for the dry-run header.
 export function combinationCount() {
-  const { openers, hooks, pitches, perks, giveaways, ctas, signoffs } = SLOTS;
+  const { openers, hooks, pitches, perks, giveaways, ctas, signoffs, thanks } = SLOTS;
   return (
     (openers.length + 1) * (hooks.length + 1) * pitches.length * (perks.length + 1) *
-    (giveaways.length + 1) * ctas.length * (signoffs.length + 1) * 2 * 2
+    (giveaways.length + 1) * ctas.length * (signoffs.length + 1) * thanks.length * 2 * 2
   );
 }

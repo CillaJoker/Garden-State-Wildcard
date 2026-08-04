@@ -50,6 +50,139 @@ A **blank COGS** on a sale means the sold item has no allocated cost — usually
 no Purchase ID. Either link it to its purchase (then add this formula), or it's a legitimate
 pre-founding card with no cost basis (correct to leave blank).
 
+## Trades are sales — two-sided barter recording
+
+**The IRS treats a trade as a sale.** §1031 like-kind exchange has excluded collectibles since
+2018 (TCJA limited it to real property) and never covered dealer inventory. You realize the
+**FMV of what you receive**; gain = FMV − basis of what you gave up, and the acquired card takes
+a **cost basis equal to that FMV**. Basis does move from the old cards into the new one — but
+through a recognized sale, not around it.
+
+One trade `T-NNNN` = **a Sales row per outgoing card** + **one Purchases row** for everything
+received + **an Inventory row per incoming card**:
+
+```
+Sales     platform=Trade  item=I-0101  price(G)=FMV  tradeId(R)=T-0001
+Purchases channel=Trade   cardCost(H)=Σ incoming FMV  tradeId(R)=T-0001  tradeCash(S)=±cash
+          └ T: =IF($R…="","",IF(ABS($H…-(SUMIF(Sales!$R:$R,$R…,Sales!$G:$G)+N($S…)))<0.01,"OK",…))
+Inventory purchase=<new P-ID>  G = the standard live allocated-cost formula
+```
+
+The existing Dashboard formulas then give the right answer with **no changes** — `SUM(Sales!G:G)`
+picks up the realized FMV, `SUM(Sales!M:M)` the outgoing basis, and the `<>Sold` SUMIFS the new
+card. `Dashboard!B11` breaks barter income out as a memo line for year-end.
+
+**Cash boot is one signed field** (`Purchases!S`): `+` you paid, `−` you received. Cash received
+is already inside the realized amount on the Sales rows — it is *not* separate income.
+
+⚠️ **Two rules that must not be broken:**
+
+1. **A traded-away card keeps Inventory status exactly `Sold`.** A `Traded` status would pass the
+   `<>Sold` test in `Dashboard!B14` and the card would keep counting as inventory you still own.
+   Trade-ness lives on the Sales row, never on Inventory status.
+2. **`Trade` stays OFF the Dashboard 1099-K watch** (`PLATFORMS_EXEMPT_FROM_1099K` in
+   `schema.js`). Barter has no processor and no 1099-K; the watch SUMIFs by platform name, so
+   omitting it excludes trades automatically.
+
+`Trade` is *not* a `saleStatus` (col Q) — a trade is a **Completed** sale. Q is completion state;
+trade-ness is platform + col R.
+
+**Recording a trade.** Either the Telegram bot (`intent="trade"`, e.g. *"traded I-0101 ($120) and
+I-0102 ($80) plus $50 cash for a Prizm worth $250"*) or the CLI (`record-trade.js`). Both go
+through the same core in **`trade.js`** — `planTrade()` validates and resolves against the sheet,
+`commitTrade()` writes. Keep new entry points on that core rather than re-implementing it.
+
+⚠️ **Outgoing cards need explicit `I-####` IDs.** Unlike sales, trades have no card-name
+resolution flow yet; the extractor is told to put `out item_id` in `missing[]` when the owner
+names a card without an ID.
+
+### Valuing the two sides — never let the model do the arithmetic
+
+Per card you may give an explicit `fmv`, a `pct` of the trade total, or a relative `weight`;
+omit all three for an even split. `"split": "basis"` apportions by cost basis. **`splitExact()`
+in `trade.js` guarantees the parts sum to the total to the cent** — `590/6` naïvely rounds to
+`$589.98`, which is one cent of drift away from the reconciliation formula reading `CHECK`.
+
+The extraction prompt forbids the model from dividing totals: it reports `trade.total` and the
+code splits. This was a real failure — a model split of `3 × 196.67` vs `6 × 98.33` was $0.03
+apart and would have been rejected.
+
+**Two-message flow (the normal path for a multi-card trade):**
+
+1. *"I traded I-0342, I-0330, I-0006 for [six cards]. Total trade valued at 590"*
+2. Bot: *"I need a bit more info — the value split across the 6 cards you received…"*
+3. *"Colorblast 15, Jon Jones 65, Skattebo auto 10, Skattebo patch 5, Tyler Warren 3, TET 2"*
+
+`normalizeEntry` (`extract.js`) **deterministically** adds that prompt to `missing[]` whenever a
+trade has >1 incoming card and none carry an `fmv`/`pct` — it is not left to the model. The
+incoming split becomes each card's **permanent cost basis**, so an even split must never happen
+silently; a real trade came in at 65/15/10/5/3/2, nothing like an even 16.7% each. The outgoing
+split defaults to cost basis without asking, since it only moves per-row gross profit — total
+gain is identical either way.
+
+**Tool-schema enums are derived from `VALIDATION`** (`enum: VALIDATION.salesPlatform`, etc.), not
+hardcoded. They previously drifted — the prompt said `Trade` was legal while the tool schema
+rejected it. Add new enum values to `VALIDATION` only.
+
+### Trades and NJ sales tax
+
+The **`Sales Tax (Direct)`** tab (quarterly ST-50 worksheet) sweeps every sale where
+**`Who remitted` (Sales col K) = "Me"**:
+
+```
+D<q> = SUMIFS(Sales!$G:$G, Sales!$K:$K,"Me", Sales!$B:$B,">="&B<q>, …"<="&C<q>)
+```
+
+`trade.js` writes **`K: 'Me'`** on trade sales rows — no platform remits on a barter deal — so
+**trades land in the ST-50 taxable base at FMV**. Owner's decision (2026-08-01): correct for
+trades with a **private individual**, which NJ taxes at fair market value even though no cash
+changes hands.
+
+⚠️ A trade with a **dealer for resale** should be exempt under ST-3 and should *not* sit in that
+table. There is no automatic detection — set `K` accordingly when that happens.
+
+Column **H, "of which barter/trade ($)"**, breaks the barter portion out per quarter so the
+variance column is self-explaining: barter is taxable but collects no cash, so tax on that
+amount is remitted out of pocket rather than being money you failed to collect.
+
+**Not encoded, ask the CPA:** FMV substantiation (trade "book value" is routinely inflated, and
+FMV sets both revenue *and* the new basis — put comps in the notes); ordinary-income vs.
+collectibles characterization.
+
+## The Dashboard 1099-K platform watch is read, not hardcoded
+
+The watch lives at `Dashboard!D5:F30` (`DASHBOARD_PLATFORM_RANGE` in `schema.js`): platform
+name in D, payout/txn formulas in E/F, footnote rows below with an empty E. `audit-sales.js`
+parses that range to learn which platforms are watched — a row counts only if it has **both**
+a name in D and a value in E, which is what filters the footnotes out.
+
+It used to compare against a hardcoded `['Whatnot','eBay','Direct']`, which went stale the
+moment `add-platforms.js` added CollX and Show, and produced a permanent false "not on the
+watch" warning for platforms that *were* on it. Don't reintroduce a literal list.
+
+## Unwound deals — Sales col Q "Sale status"
+
+Sales has a **`Q` Sale status** column: `Completed` / `Unwound` / `Refunded`, blank == Completed.
+
+- **`Unwound`** — the deal was reversed and the **item came back into inventory** (e.g. buyer
+  backed out). COGS must be $0: the cost basis stays with the still-owned inventory row.
+- **`Refunded`** — money went back but the item did **not** return, so COGS still applies.
+
+COGS (col M) is status-aware, so an unwound row zeroes itself instead of being hand-typed:
+
+```
+=IF($Q<r>="Unwound",0,IF(E<r>="","",IFERROR(VLOOKUP(E<r>,Inventory!$A:$G,7,FALSE()),"")))
+```
+
+This matters because the old workaround was typing `0` into M and N directly, which
+**destroyed those rows' formulas** and buried the reason in the Card text. Mark col Q instead
+— never hand-type COGS. `audit-sales.js` reads Q and skips `Unwound` rows in the "item still
+In stock" and "zero sale price" checks, so they stop showing up as false positives forever.
+
+⚠️ **47 early sales (S-0001…S-0047) still have hand-typed `M=0`** — legacy no-cost-basis rows.
+`add-sale-status.js` deliberately leaves any hand-typed COGS alone, since overwriting it with
+a live formula would silently change the P&L. Convert them only deliberately.
+
 ## Scripts
 
 | Script | Purpose | Writes? |
@@ -59,6 +192,10 @@ pre-founding card with no cost basis (correct to leave blank).
 | `fix-bulk-remainder.js <bulk-ItemID> [--confirm]` | Apply the item-count remainder formula + cost formula to any bulk-remainder row | with `--confirm` |
 | `fill-alloc.js <ItemID…> [--confirm]` | Drop the standard allocated-cost formula into a row's G (skips rows that already have it) | with `--confirm` |
 | `add-platforms.js [--confirm]` | Rebuild the Dashboard 1099-K platform watch (all platforms) | with `--confirm` |
+| `add-sale-status.js [Sale-ID…] [--confirm]` | Install/repair the Sales col Q status column + status-aware COGS; marks the given sales `Unwound` and restores their M/N formulas | with `--confirm` |
+| `add-trade-columns.js [--confirm]` | One-time: install Sales R / Purchases R,S,T trade columns + `Trade` dropdown options | with `--confirm` |
+| `record-trade.js <trade.json> [--confirm]` | CLI over `trade.js`: record one trade end to end — Sales rows out, Purchases row in, Inventory rows, live formulas | with `--confirm` |
+| `trades-audit.js` | Cross-check both sides of every trade: linkage, reconciliation, $0 FMV, traded items not marked Sold | read-only |
 
 Typical flow after adding inventory: run `audit-sales.js`; for a new multi-item row use
 `fill-alloc.js <ItemID> --confirm`; for a bulk-remainder row use

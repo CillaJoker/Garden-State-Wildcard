@@ -200,7 +200,42 @@ Zelle/Venmo/Cash also mark the purchases with no processor paper trail — those
 receipt or note in col Q has to carry on its own.
 
 The dropdown is **non-strict**, so a one-off method (check, wire) can be typed without a schema
-change. Install or backfill with `add-payment-method.js`.
+change.
+
+### Backfilling with `add-payment-method.js`
+
+Dry-run by default, `--confirm` to write, idempotent — every run re-asserts the `U1` header and
+reinstalls the dropdown over `U2:U<last+200>`, so it is also the repair tool if either gets
+clobbered.
+
+```
+node add-payment-method.js                                          # install header + dropdown
+node add-payment-method.js --set P-0091=Zelle --confirm             # backfill one
+node add-payment-method.js --set P-0091=Zelle P-0092="Personal credit card" --confirm
+```
+
+`--set` takes any number of `P-####=Method` pairs and consumes arguments until the next `--`
+flag, so **quote multi-word methods** and keep `--confirm` after the list, not inside it.
+
+Three deliberate refusals — this script never invents history:
+
+- **Only the purchases you name.** There is no bulk or "fill the rest" mode, on purpose. The
+  whole point of col U is that it records what the owner actually knows.
+- **Never overwrites a non-blank cell.** A row that already says something is reported as
+  `already says "X" — leaving alone` and skipped, so a re-run can't quietly relabel which
+  account the money left.
+- **Methods are validated against `VALIDATION.purchaseMethod` before anything is read**, and an
+  unknown one exits non-zero. Note the asymmetry with the non-strict dropdown: a one-off like
+  `Check` can be **typed into the cell by hand**, but `--set` will refuse it. Either type it
+  directly or add it to `VALIDATION`.
+
+A `P-####` that isn't in column A is a warning, not a failure — the rest of the batch still
+applies.
+
+**Current state (2026-08-09):** 35 of 222 purchases have a method recorded — 34
+`Personal credit card`, 1 `Business credit card` — all written by the bot from the owner
+stating it at entry time. The other 187 are blank, i.e. unrecorded rather than uncategorized,
+and the pre-col-U ones can only be backfilled from memory or receipts.
 
 ## The Dashboard 1099-K platform watch is read, not hardcoded
 

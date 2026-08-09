@@ -5,6 +5,10 @@
 //                   [--when "Thursday 8pm ET"] [--title "..."] [--only user1,user2]
 //                   [--min-delay 45] [--max-delay 150] [--yes]
 //
+// Once you're live, use the come-watch copy instead of the bookmark ask:
+//   --live-now                 nudge the people already invited to this show
+//   --live-now --from-roster   same copy, aimed at fresh followers who never got the invite
+//
 // Flow per recipient, in a share sheet reopened fresh each time:
 //   search the username → click their row → type the message → Send.
 //
@@ -43,6 +47,12 @@ const RETRY_FAILED = args.includes('--retry-failed');
 // closing the invite → bookmark → viewer loop at go-live time. Its own state file and message
 // set; the 7-day cooldown is bypassed because this is a deliberate same-night second contact.
 const LIVE_NOW = args.includes('--live-now');
+// Pairs with --live-now to flip WHO gets the come-watch copy: instead of re-touching the
+// people already invited to this show, draw fresh followers off the roster. This is the mode
+// to use once you're live — the ordinary invite text asks people to BOOKMARK for a reminder,
+// which is wrong for a show that's already running. Cooldown still applies here, because
+// unlike the same-night second touch these are cold contacts.
+const FROM_ROSTER = args.includes('--from-roster');
 // Days a follower is off-limits after any invite, across all shows. The per-show exclusion
 // list alone would happily message the same person every time you go live; this is what keeps
 // a promo tool from turning into a nuisance. --cooldown 0 disables it for a deliberate push.
@@ -93,6 +103,23 @@ function loadShowState(showId) {
 const daysSince = (iso) => (Date.now() - new Date(iso).getTime()) / 86_400_000;
 
 function chooseRecipients() {
+  // --live-now --from-roster: come-watch copy aimed at followers who have NOT been invited to
+  // this show. Excludes anyone already invited (plain --live-now covers them) and anyone
+  // already nudged, and honours the cooldown since these are cold contacts.
+  if (LIVE_NOW && FROM_ROSTER && !ONLY.length) {
+    return roster.order.filter((u) => {
+      if (RETRY_FAILED && ['failed', 'not-found'].includes(sent.results[u])) return true;
+      if (has(sent, u)) { stats.skipped++; return false; }
+      if (inviteState.results[u] === 'messaged') { stats.skipped++; return false; }
+      const last = contacts.lastMessaged[u];
+      if (COOLDOWN_DAYS > 0 && last && daysSince(last) < COOLDOWN_DAYS) {
+        stats.cooling++;
+        return false;
+      }
+      return true;
+    }).slice(0, LIMIT);
+  }
+
   // Live-now (without an explicit --only) draws from the people already invited to THIS show,
   // not the roster. Cooldown is intentionally not applied — they were invited today and this
   // is the same-night reminder.

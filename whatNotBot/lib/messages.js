@@ -34,42 +34,57 @@ export const SLOTS = {
     'thanks for checking us out',
   ],
 
+  // MANDATORY slot — every message gets one. Baseball clearance: the hook is that the
+  // baseball is going, not that the format is new. Do NOT reintroduce "trying something
+  // new"/"first time" here — that was written for the first pop-up and is false for repeats.
+  // The specifics ($2 starts / free shipping) live in the optional perk + giveaway beats, and
+  // the attached show card carries them regardless of which beats fire.
   pitches: [
-    'we got a big one coming up {when}',
-    'were going live {when} and its loaded',
-    'next show is {when} and its stacked',
-    'we run again {when}',
-    'jumping back on {when}',
-    'got another one going {when}',
-    'were back live {when}',
-    'we go live {when} 🔥',
+    'were back {when} clearing out the baseball',
+    'baseball show {when} and everythings gotta go',
+    'we go live {when} — baseball clear out',
+    'running it back {when}, clearing out all the baseball',
+    'another baseball show {when} and its all gotta go',
+    'back at it {when} — baseball, everythings gotta go',
+    'baseball clear out {when} 🔥',
+    'were live {when} moving all the baseball',
   ],
 
-  // The actual reason to show up. Max shipping is the hook — one shipping fee no matter how
-  // much you win — so it's stated as a benefit rather than as jargon.
-  // NOTE: this is a standing claim on every message. If a show ever runs without max
-  // shipping, edit or empty this array before that run.
+  // The actual reason to show up. FREE shipping for the pop-up baseball show — note this is a
+  // stronger claim than the usual max shipping, so it must be reverted for any show that goes
+  // back to max shipping. NOTE: standing claim on every message it appears in.
   perks: [
-    'max shipping all night so you can stack wins without stacking shipping',
-    'we run max shipping, so win as much as you want and still pay one ship',
-    'max shipping the whole show 📦',
-    'max shipping means you can go crazy and only pay shipping once',
-    'were doing max shipping so dont hold back',
-    'max shipping is on, so stacking wins costs you nothing extra',
-    'max shipping all show 🙌',
+    'free shipping all night, not even max shipping — free',
+    'were doing FREE shipping the whole show 📦',
+    'free shipping all night so you keep every dollar on the cards',
+    'shipping is free all show, no catch',
+    'free shipping the entire night 🙌',
+    'no shipping costs at all tonight, its free',
+    'free shipping all night long',
   ],
 
-  // Giveaway incentive: every 30 entrants triggers a NUKE ("hit for all") starting at $1.
-  // Like perks, this is a standing claim — empty this array for any show that isn't running
-  // the promo. The "30 → NUKE" mechanic is stated concretely so it reads as a reason to enter.
+  // The price hook: everything opens at $2. Like perks, a standing claim — swap it for any
+  // show that doesn't run $2 starts. Stated concretely so it reads as a reason to show up.
   giveaways: [
-    'every 30 people in the giveaway = a NUKE starting at just a dollar',
-    'we hit 30 in the giveaway, we run a NUKE starting at $1',
-    'for every 30 in the giveaway we drop a NUKE starting at a buck',
-    'each time the giveaway hits 30 we run a NUKE from a dollar',
-    '30 in the giveaway = a NUKE starting at $1, every single time',
-    'we run a NUKE starting at a dollar for every 30 people in the giveaway',
-    'hit 30 in the giveaway and a NUKE goes off starting at $1',
+    'every single card starts at 2$',
+    '2$ starts on everything, no exceptions',
+    'were opening everything at just 2$',
+    'all the bidding kicks off at 2$',
+    '2$ starts across the board 👀',
+    'nothing starts higher than 2$',
+    'everything opens at 2 bucks',
+  ],
+
+  // Third promo beat: the shop is stocked and open to offers alongside the live auctions.
+  // Deliberately only fires when the message isn't already carrying BOTH the perk and the
+  // giveaway (see withShop) — three promo lines in one DM reads like a flyer.
+  shop: [
+    'shop is loaded too, offer on anything in there',
+    'the shop is stocked as well — send offers on whatever',
+    'plus the shop is full, offers welcome on any of it',
+    'shop is loaded if youd rather just make an offer',
+    'theres a full shop up too, offer on anything',
+    'shop is stacked as well 👀',
   ],
 
   ctas: [
@@ -131,14 +146,14 @@ export const LIVE_SLOTS = {
   ],
 
   // One short why-now beat. Optional. NOTE: like the invite's perks/giveaways these are
-  // standing claims — trim for any show not running $1 singles / max shipping / the NUKE.
+  // standing claims — keep them in sync with whatever the current show is actually running.
   reasons: [
-    'max shipping all show 📦',
-    '$1 singles rolling now',
-    'first NUKE is coming up',
+    'free shipping all show 📦',
+    '2$ starts on everything',
+    'baseball pop up, first time doing this',
     'deals already flying',
     'its stacked tonight',
-    'max shipping so stack em up 🙌',
+    'free shipping so stack em up 🙌',
   ],
 
   // Come-watch, NEVER bookmark — the show is already live.
@@ -225,6 +240,9 @@ function buildOnce(rand, { username, show, singleLine }) {
   // Two promo lines (max shipping AND the giveaway) in one DM runs long, so ease off the perk
   // when the giveaway is in, and let the giveaway carry more of the "why show up" weight.
   const withPerk = rand() < (withGiveaway ? 0.45 : 0.8);
+  // Third promo beat. Suppressed whenever the perk AND giveaway are both already in, so a DM
+  // never carries three promo lines.
+  const withShop = rand() < 0.55 && !(withPerk && withGiveaway);
   const withSignoff = rand() < (withGiveaway ? 0.4 : 0.6);
 
   const chosen = {
@@ -233,6 +251,7 @@ function buildOnce(rand, { username, show, singleLine }) {
     pitch: pick(SLOTS.pitches),
     perk: withPerk ? pick(SLOTS.perks) : null,
     giveaway: withGiveaway ? pick(SLOTS.giveaways) : null,
+    shop: withShop ? pick(SLOTS.shop) : null,
     cta: pick(SLOTS.ctas),
     signoff: withSignoff ? pick(SLOTS.signoffs) : null,
     thanks: pick(SLOTS.thanks), // mandatory closing gratitude — always the last beat
@@ -277,12 +296,14 @@ function buildOnce(rand, { username, show, singleLine }) {
     parts.push(`${pitch} — ${cta}`);
     if (chosen.perk) parts.push(fill(chosen.perk, vars));
     if (chosen.giveaway) parts.push(fill(chosen.giveaway, vars));
+    if (chosen.shop) parts.push(fill(chosen.shop, vars));
   } else {
     parts.push(pitch);
     // Perk then giveaway sit between the pitch and the ask: here's the show, here's why it's
     // worth your time, now bookmark it.
     if (chosen.perk) parts.push(fill(chosen.perk, vars));
     if (chosen.giveaway) parts.push(fill(chosen.giveaway, vars));
+    if (chosen.shop) parts.push(fill(chosen.shop, vars));
     parts.push(cta);
   }
 

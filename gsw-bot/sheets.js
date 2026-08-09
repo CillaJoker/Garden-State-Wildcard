@@ -106,36 +106,45 @@ async function getInventoryRow(itemId) {
   return null;
 }
 
-// Returns { rowIndex, card } for an Inventory row by Item ID, or null
+// Col G is the allocated cost — a live formula, so read it UNFORMATTED to get the number
+// rather than the formula text. It weights the split of a multi-item sale's price.
+const INVENTORY_LOOKUP_RANGE = 'A:G';
+const invEntry = (row, i) => ({
+  rowIndex: i + 1,
+  card: row[2] == null ? '' : String(row[2]),
+  alloc: Number(row[6]) || 0,
+});
+
+// Returns { rowIndex, card, alloc } for an Inventory row by Item ID, or null
 async function getInventoryRowData(itemId) {
   const sheets = await getSheetsClient();
-  const range = `'${TAB_NAMES.inventory}'!A:C`;
+  const range = `'${TAB_NAMES.inventory}'!${INVENTORY_LOOKUP_RANGE}`;
   const res = await withRetry(() =>
-    sheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId(), range })
+    sheets.spreadsheets.values.get({
+      spreadsheetId: spreadsheetId(), range, valueRenderOption: 'UNFORMATTED_VALUE',
+    })
   );
   const rows = res.data.values || [];
   for (let i = 1; i < rows.length; i++) {
-    if (rows[i] && rows[i][0] === itemId) {
-      return { rowIndex: i + 1, card: rows[i][2] || '' };
-    }
+    if (rows[i] && rows[i][0] === itemId) return invEntry(rows[i], i);
   }
   return null;
 }
 
-// One read of Inventory A:C → Map(itemId → { rowIndex, card }). Use to resolve
+// One read of Inventory A:G → Map(itemId → { rowIndex, card, alloc }). Use to resolve
 // many item IDs at once instead of one getInventoryRowData read per ID.
 async function getInventoryLookup() {
   const sheets = await getSheetsClient();
-  const range = `'${TAB_NAMES.inventory}'!A:C`;
+  const range = `'${TAB_NAMES.inventory}'!${INVENTORY_LOOKUP_RANGE}`;
   const res = await withRetry(() =>
-    sheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId(), range })
+    sheets.spreadsheets.values.get({
+      spreadsheetId: spreadsheetId(), range, valueRenderOption: 'UNFORMATTED_VALUE',
+    })
   );
   const rows = res.data.values || [];
   const map = new Map();
   for (let i = 1; i < rows.length; i++) {
-    if (rows[i] && rows[i][0]) {
-      map.set(rows[i][0], { rowIndex: i + 1, card: rows[i][2] || '' });
-    }
+    if (rows[i] && rows[i][0]) map.set(String(rows[i][0]), invEntry(rows[i], i));
   }
   return map;
 }

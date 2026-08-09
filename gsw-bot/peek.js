@@ -22,8 +22,8 @@ const TARGET_PURCHASE = process.argv[3] || 'P-0091';
       .then((r) => r.data.values || []);
 
   const [pForm, pVal, iForm, iVal] = await Promise.all([
-    get(`'${TAB_NAMES.purchases}'!A:Q`, 'FORMULA'),
-    get(`'${TAB_NAMES.purchases}'!A:Q`, 'UNFORMATTED_VALUE'),
+    get(`'${TAB_NAMES.purchases}'!A:U`,'FORMULA'),
+    get(`'${TAB_NAMES.purchases}'!A:U`,'UNFORMATTED_VALUE'),
     get(`'${TAB_NAMES.inventory}'!A:I`, 'FORMULA'),
     get(`'${TAB_NAMES.inventory}'!A:I`, 'UNFORMATTED_VALUE'),
   ]);

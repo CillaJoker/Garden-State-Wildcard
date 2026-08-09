@@ -103,6 +103,17 @@ omit all three for an even split. `"split": "basis"` apportions by cost basis. *
 in `trade.js` guarantees the parts sum to the total to the cent** — `590/6` naïvely rounds to
 `$589.98`, which is one cent of drift away from the reconciliation formula reading `CHECK`.
 
+**A fully-valued incoming side sets the total.** *"Traded I-0185 and I-0452 for malik nabers psa
+10 valued at 210"* names a value only for what was **received** — which is the same thing
+`trade.total` names, so `planTrade()` uses it as the headline (outgoing target = it minus cash).
+Without that, the most natural phrasing of a trade dead-ended on *"the trade needs a total
+value"* even though the extractor had parsed it perfectly. An explicit `total` still wins, and
+if the two disagree the balance check rejects the trade rather than picking one.
+
+If `"split": "basis"` is asked for but an outgoing card has **no allocated cost**, the split
+falls back to even — it can't weight by a zero. Total gain is unaffected (only how it lands per
+row), but `summarizeTrade` now says so instead of implying a basis split.
+
 The extraction prompt forbids the model from dividing totals: it reports `trade.total` and the
 code splits. This was a real failure — a model split of `3 × 196.67` vs `6 × 98.33` was $0.03
 apart and would have been rejected.
@@ -149,6 +160,48 @@ amount is remitted out of pocket rather than being money you failed to collect.
 FMV sets both revenue *and* the new basis — put comps in the notes); ordinary-income vs.
 collectibles characterization.
 
+## A sale's money is stated once and split across its rows
+
+The owner states one figure for the whole deal — *"sold I-0004 and I-0005 for $200"* — but Sales
+col G is **per row**. `writeSale` used to stamp the full `sale_price` on every row, so a 2-item
+sale booked **$400** of revenue. Same for shipping, fees, and tax collected.
+
+`allocateSale()` (`bot.js`) apportions all four, **weighted by cost basis** so every row carries
+the same margin — the same rule a trade's outgoing side uses. It calls the same `splitExact()`
+from `trade.js` (now exported), so the parts sum to the stated figure to the cent.
+
+- An item with **no basis** can't weight anything, so the whole sale falls back to an **even
+  split**. `new_items[]` (untracked pre-founding cards) always have none.
+- **Single-item sales are unchanged** — a one-way split returns the whole amount.
+- The split is resolved at **confirm time** and stashed on the entry, so what the owner approves
+  is exactly what gets written — same pattern as `_tradePlan`. The confirm prompt shows each
+  row's own dollar amount; showing the price once above the item bullets is what let a
+  `$210 × 2` write look like a single $210 sale.
+
+`getInventoryLookup()` / `getInventoryRowData()` read Inventory `A:G` (not `A:C`) with
+`UNFORMATTED_VALUE`, so col G comes back as the **number** the live formula produced rather than
+the formula text.
+
+## Purchases col U — Payment method
+
+How the purchase was paid for: `Business credit card` / `Personal credit card` / `Zelle` /
+`Venmo` / `Cash` (`VALIDATION.purchaseMethod`). Appended at U rather than inserted mid-sheet —
+inserting would shift T and every formula that names a column by letter.
+
+**Blank means "not recorded", not a category.** The bot only fills it when the owner actually
+says how they paid ("on the business card", "zelled him", "paid cash"); it is explicitly
+forbidden from inferring it from the channel, and it never asks. A guessed
+personal-vs-business call misstates which account the money left.
+
+The distinction that matters at tax time is **personal vs. business**: a card bought on a
+personal card is still a deductible business cost, but it is an owner contribution rather than
+a business-account outflow, so it needs reimbursement or a booking to owner's equity.
+Zelle/Venmo/Cash also mark the purchases with no processor paper trail — those are the ones a
+receipt or note in col Q has to carry on its own.
+
+The dropdown is **non-strict**, so a one-off method (check, wire) can be typed without a schema
+change. Install or backfill with `add-payment-method.js`.
+
 ## The Dashboard 1099-K platform watch is read, not hardcoded
 
 The watch lives at `Dashboard!D5:F30` (`DASHBOARD_PLATFORM_RANGE` in `schema.js`): platform
@@ -194,6 +247,7 @@ a live formula would silently change the P&L. Convert them only deliberately.
 | `add-platforms.js [--confirm]` | Rebuild the Dashboard 1099-K platform watch (all platforms) | with `--confirm` |
 | `add-sale-status.js [Sale-ID…] [--confirm]` | Install/repair the Sales col Q status column + status-aware COGS; marks the given sales `Unwound` and restores their M/N formulas | with `--confirm` |
 | `add-trade-columns.js [--confirm]` | One-time: install Sales R / Purchases R,S,T trade columns + `Trade` dropdown options | with `--confirm` |
+| `add-payment-method.js [--set P-####=Method …] [--confirm]` | Install Purchases col U (Payment method) header + dropdown; `--set` backfills named purchases (never guesses, never overwrites) | with `--confirm` |
 | `record-trade.js <trade.json> [--confirm]` | CLI over `trade.js`: record one trade end to end — Sales rows out, Purchases row in, Inventory rows, live formulas | with `--confirm` |
 | `trades-audit.js` | Cross-check both sides of every trade: linkage, reconciliation, $0 FMV, traded items not marked Sold | read-only |
 

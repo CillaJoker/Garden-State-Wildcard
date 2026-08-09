@@ -30,6 +30,11 @@ const RECORD_ENTRY_TOOL = {
           sales_tax_paid:    { type: 'number' },
           st3_used:          { type: 'string', enum: VALIDATION.st3Used },
           allocation_method: { type: 'string', enum: VALIDATION.allocationMethod },
+          payment_method:    {
+            type: 'string',
+            enum: VALIDATION.purchaseMethod,
+            description: 'How it was paid for. Only set when the owner says so — never guess.',
+          },
           items: {
             type: 'array',
             items: {
@@ -177,7 +182,19 @@ TODAY'S DATE: ${today}
 - inventory status: ${VALIDATION.inventoryStatus.join(', ')}
 - sales platform: ${VALIDATION.salesPlatform.join(', ')}
 - who_remitted: ${VALIDATION.whoRemitted.join(', ')}
+- purchase.payment_method: ${VALIDATION.purchaseMethod.join(', ')}
 - expense category: ${VALIDATION.expensesCategory.join(', ')}
+
+## purchase.payment_method
+- Set it ONLY when the owner states how they paid — "on the business card", "paid cash",
+  "zelled him", "sent it on Venmo", "put it on my personal card".
+- Map free text to the nearest allowed value: "business card"/"biz card"/"company card" →
+  Business credit card; "my card"/"personal card" → Personal credit card; "zelle"/"zelled" →
+  Zelle; "venmo"/"venmoed" → Venmo; "cash" → Cash.
+- NEVER infer it from the channel or anything else. A Whatnot purchase is not automatically a
+  card payment. If the owner did not say, leave it unset — blank means "not recorded", and a
+  guess here misstates which account the money came out of.
+- Never put it in missing[] and never list it in assumptions[] when unset.
 
 ## Inventory rows for purchases
 - If the user names specific cards, make one item per named card (qty 1 each unless stated)
@@ -238,8 +255,10 @@ TODAY'S DATE: ${today}
 ## missing[] rules
 - Only add a field to missing[] if it is required and not inferable
 - Required: expense.amount; sale.item_ids (if no I-#### given AND no purchase_ids AND no card_descriptions AND no new_items); purchase.card_cost
-- NEVER add these to missing[] — they are always optional: sale.order_no, sale.shipping_charged, sale.platform_fees, sale.sales_tax_collected, sale.buyer_state, sale.notes, purchase.shipping_in, purchase.sales_tax_paid, purchase.receipt_link, purchase.notes, expense.receipt_link, expense.notes, trade.counterparty, trade.cash, trade.notes, trade.grade_cert
+- NEVER add these to missing[] — they are always optional: sale.order_no, sale.shipping_charged, sale.platform_fees, sale.sales_tax_collected, sale.buyer_state, sale.notes, purchase.shipping_in, purchase.sales_tax_paid, purchase.receipt_link, purchase.notes, expense.receipt_link, expense.notes, purchase.payment_method, trade.counterparty, trade.cash, trade.notes
+- grade_cert is ALWAYS optional, everywhere it appears — purchase.items[], sale.new_items[], trade.in[], inventory. Most cards are raw and ungraded. Never put grade, cert, or "grade/cert" in missing[] under any phrasing.
 - Do NOT add optional fields or fields with valid defaults
+- If you find yourself writing the word "optional" into a missing[] entry, that is proof the field does not belong there — leave it out entirely
 
 ## assumptions[] style
 - List only the non-obvious defaults you applied; skip self-evident things like "date = today"

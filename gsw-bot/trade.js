@@ -47,12 +47,17 @@ function splitExact(total, weights) {
   return base.map((c) => c / 100);
 }
 
+// True when every entry carries its own dollar value, so the side needs no split at all.
+const allValued = (entries) => entries.length > 0 && entries.every((e) => Number(e.fmv) > 0);
+
 // Resolves one side's per-card dollar values. Each entry may carry an explicit `fmv`, a `pct`
 // (percent of the side total), or a `weight` (relative share). `basisWeights` backs the
-// "split": "basis" shorthand on the outgoing side.
-function resolveSide(entries, target, label, basisWeights) {
+// "split": "basis" shorthand on the outgoing side. `onFallback` is called when a requested
+// basis split can't be honoured, so the caller can surface it instead of splitting evenly in
+// silence.
+function resolveSide(entries, target, label, basisWeights, onFallback) {
   const has = (k) => entries.some((e) => e[k] !== undefined && e[k] !== null && e[k] !== '');
-  const allFmv = entries.every((e) => Number(e.fmv) > 0);
+  const allFmv = allValued(entries);
 
   if (allFmv) return entries.map((e) => round2(e.fmv));
 
@@ -76,8 +81,11 @@ function resolveSide(entries, target, label, basisWeights) {
     if (missing.length) throw new TradeError(`Every ${label} card needs a "weight" when weights are used.`);
     return splitExact(target, entries.map((e) => Number(e.weight)));
   }
-  if (basisWeights && basisWeights.every((w) => w > 0)) {
-    return splitExact(target, basisWeights);
+  if (basisWeights) {
+    if (basisWeights.every((w) => w > 0)) return splitExact(target, basisWeights);
+    // A card with no allocated cost can't weight the split. Total gain is unaffected — only
+    // how it lands per row — but the preview must say so rather than imply a basis split.
+    if (onFallback) onFallback(entries.filter((e, i) => !(basisWeights[i] > 0)));
   }
   // Nothing specified → even split, still exact to the cent.
   return splitExact(target, entries.map(() => 1));
@@ -147,19 +155,30 @@ async function planTrade(input) {
   const stated = input.total !== undefined && input.total !== null && input.total !== ''
     ? round2(input.total)
     : null;
-  const outTarget = stated !== null
-    ? round2(stated - cash)
-    : (out.every((o) => Number(o.fmv) > 0) ? round2(out.reduce((s, o) => s + Number(o.fmv), 0)) : null);
+  const sumFmv = (entries) => round2(entries.reduce((s, e) => s + Number(e.fmv), 0));
+  // "traded A and B for C worth $210" values only the side RECEIVED, which is the same thing a
+  // stated total names — so it sets the outgoing target the same way. Without this the most
+  // natural phrasing of a trade dead-ends on "the trade needs a total value". An explicit
+  // `total` still wins; if the two disagree, the balance check below catches it.
+  const headline = stated !== null ? stated : (allValued(incoming) ? sumFmv(incoming) : null);
+  const outTarget = headline !== null
+    ? round2(headline - cash)
+    : (allValued(out) ? sumFmv(out) : null);
 
-  if (stated !== null && !(outTarget > 0)) {
+  if (headline !== null && !(outTarget > 0)) {
     throw new TradeError(
-      `Cash (${money(cash)}) is not less than the trade total (${money(stated)}), which would ` +
+      `Cash (${money(cash)}) is not less than the trade total (${money(headline)}), which would ` +
       `leave the cards you gave up worth ${money(outTarget)}. Check the total and the cash direction.`
     );
   }
 
   const useBasis = String(input.split || '').toLowerCase() === 'basis';
-  const outValues = resolveSide(out, outTarget, 'outgoing', useBasis ? hits.map((h) => h.alloc || 0) : null);
+  let basisFallback = null;
+  const outValues = resolveSide(
+    out, outTarget, 'outgoing',
+    useBasis ? hits.map((h) => h.alloc || 0) : null,
+    (unpriced) => { basisFallback = unpriced.map((e) => e.item); },
+  );
   const vOut = round2(outValues.reduce((s, v) => s + v, 0));
 
   // What you receive must equal what you gave up, adjusted for cash boot.
@@ -202,6 +221,7 @@ async function planTrade(input) {
     })),
     cash, vOut, vIn,
     weighted: incoming.length > 1,
+    basisFallback, // outgoing cards with no cost basis, when a basis split was asked for
   };
 }
 
@@ -213,6 +233,9 @@ function summarizeTrade(plan, { withPrompt = false } = {}) {
   lines.push(`Giving up (${plan.out.length}) → Sales rows at platform "Trade":`);
   for (const o of plan.out) lines.push(`  ${o.item}  ${money(o.fmv)}  ${o.card}`);
   lines.push(`  total ${money(plan.vOut)}`);
+  if (plan.basisFallback && plan.basisFallback.length) {
+    lines.push(`  split evenly — ${plan.basisFallback.join(', ')} has no cost basis to weight by`);
+  }
   lines.push('');
   lines.push(`Cash: ${plan.cash === 0 ? 'none' : plan.cash > 0 ? `${money(plan.cash)} paid by you` : `${money(-plan.cash)} received by you`}`);
   lines.push('');
@@ -283,4 +306,4 @@ async function commitTrade(plan) {
   };
 }
 
-module.exports = { planTrade, commitTrade, summarizeTrade, TradeError, money };
+module.exports = { planTrade, commitTrade, summarizeTrade, splitExact, TradeError, money };

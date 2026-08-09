@@ -27,7 +27,7 @@ const ID_PREFIXES = {
 
 // Input runs: only these ranges are written by the bot (formula columns are skipped)
 const INPUT_RUNS = {
-  purchases: ['A:I', 'K:M', 'P:S'],
+  purchases: ['A:I', 'K:M', 'P:S', 'U:U'],
   inventory: ['A:I'],
   sales: ['A:K', 'O:R'],
   expenses: ['A:G'],
@@ -56,6 +56,7 @@ const COLUMN_MAPS = {
     { col: 18, letter: 'R', field: 'Trade ID',           type: 'INPUT' },
     { col: 19, letter: 'S', field: 'Trade cash ($)',     type: 'INPUT' },
     { col: 20, letter: 'T', field: 'Trade reconciliation', type: 'FORMULA' },
+    { col: 21, letter: 'U', field: 'Payment method',      type: 'INPUT' },
   ],
   inventory: [
     { col: 1, letter: 'A', field: 'Item ID',             type: 'INPUT' },
@@ -109,6 +110,17 @@ const VALIDATION = {
   // the watch SUMIFs by platform name, so omitting it excludes trades from payout totals.
   salesPlatform:       ['Whatnot', 'eBay', 'CollX', 'Direct', 'Show', 'Trade', 'Other'],
   whoRemitted:         ['Platform', 'Me'],
+  // Purchases col U. 'Personal credit card' flags a purchase paid with personal funds —
+  // it is still a deductible business cost, but it is an owner contribution rather than a
+  // business-account outflow, so it needs to be reimbursed or booked to owner's equity.
+  // Blank = unrecorded, not a category.
+  purchaseMethod:      [
+    'Business credit card',
+    'Personal credit card',
+    'Zelle',
+    'Venmo',
+    'Cash',
+  ],
   // Blank == Completed. 'Unwound' = deal reversed, item returned to inventory: forces COGS
   // to 0 and suppresses the audit's "item still In stock" / "zero price" checks.
   // 'Refunded' = money returned but the item did NOT come back, so COGS still applies.

@@ -12,14 +12,13 @@ const {
   updateInventoryStatus,
   updateInventoryStatusBatch,
   getInventoryRow,
-  getInventoryRowData,
   getInventoryLookup,
   getInventoryRowsByPurchaseId,
   searchInventoryByCard,
   recalcAllocations,
   clearRow,
 } = require('./sheets');
-const { planTrade, commitTrade, summarizeTrade, TradeError } = require('./trade');
+const { planTrade, commitTrade, summarizeTrade, splitExact, TradeError } = require('./trade');
 
 const token = process.env.TELEGRAM_TOKEN;
 const ownerChatId = process.env.OWNER_CHAT_ID ? Number(process.env.OWNER_CHAT_ID) : null;
@@ -42,14 +41,50 @@ const OPTIONAL_FIELDS = new Set([
   'buyer_state', 'shipping_in', 'sales_tax_paid', 'receipt_link', 'notes',
   'who_remitted', 'seller', 'grade_cert', 'value_weight', 'sale_id',
   'num_cards', 'lot_or_single', 'allocation_method', 'st3_used',
-  'counterparty', 'cash',
+  'counterparty', 'cash', 'payment_method',
 ]);
 
+// Leading words the model likes to glue onto a field name ("card grade/cert",
+// "item qty"). Stripped only as a second pass, so "card_cost" still survives.
+const MISSING_NOISE_WORDS = new Set([
+  'the', 'a', 'an', 'card', 'item', 'items', 'purchase', 'sale', 'trade',
+  'expense', 'inventory', 'optional',
+]);
+
+// "card grade/cert (optional)" → "grade_cert". Normalizes whatever prose the
+// model wrapped a field name in down to a comparable snake_case token.
+function normalizeMissingField(raw) {
+  const tokens = String(raw)
+    .replace(/\([^)]*\)?/g, ' ')          // drop parentheticals, even unclosed
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  return tokens.join('_');
+}
+
+// The model is told never to report optional fields, but it does anyway — usually
+// labelling them as such in the same breath ("grade/cert (optional)"). Exact-match
+// filtering let every one of those verbose phrasings through and blocked the whole
+// batch on a field nobody needs. Match on the normalized form instead, and treat a
+// self-declared "optional" as proof the field isn't required.
 function filterMissing(missing) {
   if (!missing || missing.length === 0) return [];
   return missing.filter(f => {
-    const field = f.includes('.') ? f.split('.').pop() : f;
-    return !OPTIONAL_FIELDS.has(field);
+    const raw = String(f);
+    if (/\boptional\b/i.test(raw)) return false;
+
+    const tail = raw.includes('.') ? raw.split('.').pop() : raw;
+    const normalized = normalizeMissingField(tail);
+    if (OPTIONAL_FIELDS.has(normalized)) return false;
+
+    // Second pass: shed leading qualifiers ("card grade cert" → "grade cert").
+    // Never let this collapse to a *shorter* required phrase — "cash direction"
+    // must not become the optional "cash".
+    const parts = normalized.split('_');
+    let i = 0;
+    while (i < parts.length && MISSING_NOISE_WORDS.has(parts[i])) i++;
+    const stripped = parts.slice(i).join('_');
+    return !(i > 0 && OPTIONAL_FIELDS.has(stripped));
   });
 }
 
@@ -96,6 +131,9 @@ function summarizePurchase(entry, pId, iIds) {
   if (p.description) lines.push(`  "${p.description}"`);
   lines.push(
     `  ${p.num_cards} cards, $${fmt(p.card_cost)} + $${fmt(p.shipping_in || 0)} ship, ST-3 ${p.st3_used}`,
+  );
+  if (p.payment_method) lines.push(`  Paid by: ${p.payment_method}`);
+  lines.push(
     items,
     `Applied: ${(entry.assumptions || []).join(', ')}`,
     '',
@@ -107,19 +145,27 @@ function summarizePurchase(entry, pId, iIds) {
 function summarizeSale(entry, sIds) {
   const s = entry.sale;
   const whoRemitted = s.who_remitted || (['Whatnot', 'eBay', 'CollX'].includes(s.platform) ? 'Platform' : 'Me');
+  // The stated price covers the whole sale and is split across the rows (see allocateSale), so
+  // show each row's own share — a single "$210.00" over two items reads as one $210 sale.
+  const split = entry._saleSplit;
+  const priceOf = (i) => (split && split.rows[i] ? `  $${fmt(split.rows[i].price)}` : '');
   const existingLines = (s.item_ids || []).map((id, i) =>
-    `  • ${sIds[i]} for item ${id}`
+    `  • ${sIds[i]} for item ${id}${priceOf(i)}`
   );
   const newLines = (s.new_items || []).map((ni, i) => {
     const sIdx = (s.item_ids || []).length + i;
-    return `  • ${sIds[sIdx]} — ${ni.card}${ni.grade_cert ? ` [${ni.grade_cert}]` : ''} (new inventory entry)`;
+    return `  • ${sIds[sIdx]} — ${ni.card}${ni.grade_cert ? ` [${ni.grade_cert}]` : ''} (new inventory entry)${priceOf(sIdx)}`;
   });
   const itemBlock = [...existingLines, ...newLines].join('\n');
+  const itemCount = (s.item_ids || []).length + (s.new_items || []).length;
   return [
     `Sale(s) on ${s.platform}`,
-    `  $${fmt(s.sale_price)} + $${fmt(s.shipping_charged || 0)} ship, fees $${fmt(s.platform_fees || 0)}`,
+    `  total $${fmt(s.sale_price)} + $${fmt(s.shipping_charged || 0)} ship, fees $${fmt(s.platform_fees || 0)}`,
     `  Tax collected: $${fmt(s.sales_tax_collected)}, remitted by ${whoRemitted}`,
     itemBlock,
+    ...(split && itemCount > 1
+      ? [`  split across ${itemCount} items ${split.method === 'basis' ? 'by cost basis' : 'evenly'}`]
+      : []),
     `Applied: ${(entry.assumptions || []).join(', ')}`,
     '',
     'Add this? (yes/no)',
@@ -215,7 +261,7 @@ async function writePurchase(entry) {
     E: p.description || '', F: p.lot_or_single,
     G: p.num_cards || '', H: p.card_cost || '', I: p.shipping_in || 0,
     K: p.sales_tax_paid || 0, L: p.st3_used, M: p.allocation_method,
-    P: p.receipt_link || '', Q: p.notes || '',
+    P: p.receipt_link || '', Q: p.notes || '', U: p.payment_method || '',
   }]);
 
   const allocatedCosts = computeAllocatedCosts(items, p.card_cost, p.shipping_in, p.allocation_method);
@@ -231,6 +277,47 @@ async function writePurchase(entry) {
   const invRows = rowIndexes.map((rowIndex) => ({ tab: 'inventory', rowIndex }));
 
   return { pId, iIds, purchaseRowIndex, invRows };
+}
+
+// A sale's money is stated ONCE for the whole deal ("sold I-0004 and I-0005 for $200"), but
+// Sales col G is per row — so it has to be apportioned, or a 2-item sale books double the
+// revenue. Weighted by cost basis so every row carries the same margin, exactly like a trade's
+// outgoing side; an item with no basis (an untracked pre-founding card) can't weight anything,
+// so the whole sale falls back to an even split. splitExact() keeps the parts summing to the
+// stated figure to the cent.
+function allocateSale(s, weights) {
+  const n = weights.length;
+  const method = n > 1 && weights.every((w) => w > 0) ? 'basis' : 'even';
+  const w = method === 'basis' ? weights : weights.map(() => 1);
+  // A blank stays blank on every row; only a stated number gets divided.
+  const share = (v) => (v === undefined || v === null || v === '' ? weights.map(() => '') : splitExact(v, w));
+
+  const price = share(s.sale_price);
+  const ship = share(s.shipping_charged != null ? s.shipping_charged : 0);
+  const fees = share(s.platform_fees != null ? s.platform_fees : 0);
+  const tax = share(s.sales_tax_collected != null ? s.sales_tax_collected : null);
+
+  return {
+    method,
+    rows: Array.from({ length: n }, (_, i) => ({
+      price: price[i], ship: ship[i], fees: fees[i], tax: tax[i],
+    })),
+  };
+}
+
+// Reads the cost bases behind a parsed sale and returns its money split, in the same order
+// writeSale appends rows (existing item_ids first, then new_items). new_items are untracked
+// cards with no basis, which forces the whole sale to an even split.
+async function resolveSaleSplit(s) {
+  const itemIds = s.item_ids || [];
+  const newCount = (s.new_items || []).length;
+  if (itemIds.length + newCount === 0) return null;
+  const lookup = itemIds.length > 0 ? await getInventoryLookup() : new Map();
+  const weights = [
+    ...itemIds.map((id) => (lookup.get(id) || {}).alloc || 0),
+    ...Array.from({ length: newCount }, () => 0),
+  ];
+  return allocateSale(s, weights);
 }
 
 async function writeSale(entry) {
@@ -264,7 +351,7 @@ async function writeSale(entry) {
     existingResolved = existingItemIds.map((id) => {
       const d = lookup.get(id);
       if (!d) throw new Error(`Item ID ${id} not found in Inventory tab`);
-      return { itemId: id, rowIndex: d.rowIndex, card: d.card };
+      return { itemId: id, rowIndex: d.rowIndex, card: d.card, alloc: d.alloc || 0 };
     });
   }
 
@@ -273,12 +360,19 @@ async function writeSale(entry) {
   const whoRemitted = s.who_remitted ||
     (['Whatnot', 'eBay', 'CollX'].includes(s.platform) ? 'Platform' : 'Me');
 
+  // Split the stated money across the rows — see allocateSale. Use the split the owner was
+  // shown at confirm time when there is one, so what they approved is what gets written.
+  const stashed = entry._saleSplit;
+  const money = stashed && stashed.rows.length === allItems.length
+    ? stashed
+    : allocateSale(s, allItems.map((it) => it.alloc || 0));
+
   // 1 read: append all sale rows in a single batchUpdate (auto-assigns S-IDs)
-  const { rowIndexes: saleRowIndexes, ids: sIds } = await appendRows('sales', allItems.map(it => ({
+  const { rowIndexes: saleRowIndexes, ids: sIds } = await appendRows('sales', allItems.map((it, i) => ({
     B: s.date, C: s.platform, D: s.order_no || '', E: it.itemId,
     F: it.card,
-    G: s.sale_price || '', H: s.shipping_charged || 0, I: s.platform_fees || 0,
-    J: s.sales_tax_collected != null ? s.sales_tax_collected : '',
+    G: money.rows[i].price, H: money.rows[i].ship, I: money.rows[i].fees,
+    J: money.rows[i].tax,
     K: whoRemitted, O: s.buyer_state || '', P: s.notes || '',
   })));
   const writtenRows = saleRowIndexes.map((rowIndex) => ({ tab: 'sales', rowIndex }));
@@ -373,7 +467,7 @@ async function writePurchaseInPlace(entry, lw) {
     E: p.description || '', F: p.lot_or_single,
     G: p.num_cards || '', H: p.card_cost || '', I: p.shipping_in || 0,
     K: p.sales_tax_paid || 0, L: p.st3_used, M: p.allocation_method,
-    P: p.receipt_link || '', Q: p.notes || '',
+    P: p.receipt_link || '', Q: p.notes || '', U: p.payment_method || '',
   });
 
   const allocatedCosts = computeAllocatedCosts(items, p.card_cost, p.shipping_in, p.allocation_method);
@@ -431,10 +525,18 @@ async function writeSaleInPlace(entry, lw) {
   const whoRemitted = s.who_remitted ||
     (['Whatnot', 'eBay', 'CollX'].includes(s.platform) ? 'Platform' : 'Me');
 
+  // 1 read for every item, and the cost bases the split is weighted by
+  const lookup = await getInventoryLookup();
+  const resolved = itemIds.map((itemId) => {
+    const d = lookup.get(itemId);
+    if (!d) throw new Error(`Item ID ${itemId} not found in Inventory tab`);
+    return d;
+  });
+  const money = allocateSale(s, resolved.map((d) => d.alloc || 0));
+
   for (let i = 0; i < itemIds.length; i++) {
     const itemId = itemIds[i];
-    const invData = await getInventoryRowData(itemId);
-    if (!invData) throw new Error(`Item ID ${itemId} not found in Inventory tab`);
+    const invData = resolved[i];
 
     const sId = i < lw.sIds.length ? lw.sIds[i] : await nextId('sales');
     finalSIds.push(sId);
@@ -442,8 +544,8 @@ async function writeSaleInPlace(entry, lw) {
     const saleData = {
       A: sId, B: s.date, C: s.platform, D: s.order_no || '', E: itemId,
       F: invData.card,
-      G: s.sale_price || '', H: s.shipping_charged || 0, I: s.platform_fees || 0,
-      J: s.sales_tax_collected != null ? s.sales_tax_collected : '',
+      G: money.rows[i].price, H: money.rows[i].ship, I: money.rows[i].fees,
+      J: money.rows[i].tax,
       K: whoRemitted, O: s.buyer_state || '', P: s.notes || '',
     };
 
@@ -567,10 +669,10 @@ async function processMultiMessage(chatId, parts) {
   await bot.sendMessage(chatId, `Parsing ${parts.length} entries...`);
 
   const results = await Promise.all(
-    parts.map(part =>
+    parts.map((part, idx) =>
       extractEntry(part, today())
-        .then(entry => ({ ok: true, entry, part }))
-        .catch(err => ({ ok: false, error: err.message, part }))
+        .then(entry => ({ ok: true, entry, part, idx }))
+        .catch(err => ({ ok: false, error: err.message, part, idx }))
     )
   );
 
@@ -589,7 +691,10 @@ async function processMultiMessage(chatId, parts) {
 
   const needsInfo = valid.filter(r => filterMissing(r.entry.missing).length > 0);
   if (needsInfo.length > 0) {
-    const issues = needsInfo.map((r, i) => `• Entry ${i + 1}: ${filterMissing(r.entry.missing)[0]}`);
+    // Number by position in the ORIGINAL message — numbering by position within
+    // needsInfo pointed at the wrong line whenever earlier entries were fine.
+    const issues = needsInfo.map(r =>
+      `• Entry ${r.idx + 1} ("${r.part.slice(0, 50)}"): ${filterMissing(r.entry.missing)[0]}`);
     await bot.sendMessage(chatId,
       `${needsInfo.length} entr${needsInfo.length === 1 ? 'y needs' : 'ies need'} more info — please re-send with these filled in:\n${issues.join('\n')}`
     );
@@ -654,6 +759,15 @@ async function processMultiMessage(chatId, parts) {
 }
 
 async function showBatchConfirm(chatId, entries) {
+  // Resolve each sale's price split before previewing, so batch entries show the same per-row
+  // amounts a single-entry confirm does — and write exactly what was approved.
+  for (const entry of entries) {
+    if (entry.intent === 'sale' && entry.sale) {
+      try { entry._saleSplit = await resolveSaleSplit(entry.sale); }
+      catch (err) { console.error('Sale split error:', err.message); }
+    }
+  }
+
   const summaryLines = [`${entries.length} entries to add:\n`];
   for (let i = 0; i < entries.length; i++) {
     summaryLines.push(`${i + 1}. ${buildEntrySummary(entries[i])}`);
@@ -1012,6 +1126,16 @@ async function showConfirmPrompt(chatId, entry) {
     pending.set(chatId, { entry, confirmText });
     await sendLong(chatId, confirmText);
     return;
+  }
+
+  // Same idea for sales: resolve the price split against the sheet's cost bases now, so the
+  // owner sees what lands in each row and writeSale reuses exactly what they approved.
+  if (entry.intent === 'sale' && entry.sale) {
+    try {
+      entry._saleSplit = await resolveSaleSplit(entry.sale);
+    } catch (err) {
+      console.error('Sale split error:', err.message);
+    }
   }
 
   let confirmText = '';

@@ -34,25 +34,28 @@ export const SLOTS = {
     'thanks for checking us out',
   ],
 
-  // MANDATORY slot — every message gets one. Baseball clearance: the hook is that the
-  // baseball is going, not that the format is new. Do NOT reintroduce "trying something
-  // new"/"first time" here — that was written for the first pop-up and is false for repeats.
-  // The specifics ($2 starts / free shipping) live in the optional perk + giveaway beats, and
-  // the attached show card carries them regardless of which beats fire.
+  // MANDATORY slot — every message gets one, so this is the line that decides what the show
+  // IS. Football (2026-08-10), replacing the baseball clearance copy. Note these say football
+  // is what's running, NOT that everything must go — "everythings gotta go" was a clearance
+  // claim specific to the baseball pop-up and is not being made here. Do NOT reintroduce
+  // "trying something new"/"first time": false for a repeat show. The specifics ($2 starts /
+  // free shipping) live in the optional perk + giveaway beats, and the attached show card
+  // carries them regardless of which beats fire.
   pitches: [
-    'were back {when} clearing out the baseball',
-    'baseball show {when} and everythings gotta go',
-    'we go live {when} — baseball clear out',
-    'running it back {when}, clearing out all the baseball',
-    'another baseball show {when} and its all gotta go',
-    'back at it {when} — baseball, everythings gotta go',
-    'baseball clear out {when} 🔥',
-    'were live {when} moving all the baseball',
+    'were back {when} and its all football',
+    'football show {when} 🏈',
+    'we go live {when} — all football',
+    'running it back {when} with a football show',
+    'another one {when} and were on football',
+    'back at it {when}, football all night',
+    'football {when} and its loaded 🔥',
+    'were live {when} running football',
   ],
 
-  // The actual reason to show up. FREE shipping for the pop-up baseball show — note this is a
-  // stronger claim than the usual max shipping, so it must be reverted for any show that goes
-  // back to max shipping. NOTE: standing claim on every message it appears in.
+  // The actual reason to show up. FREE shipping — confirmed still running for the 2026-08-10
+  // football show. This is a stronger claim than the usual max shipping, so it must be
+  // reverted for any show that goes back to max shipping. NOTE: standing claim on every
+  // message it appears in.
   perks: [
     'free shipping all night, not even max shipping — free',
     'were doing FREE shipping the whole show 📦',
@@ -150,7 +153,7 @@ export const LIVE_SLOTS = {
   reasons: [
     'free shipping all show 📦',
     '2$ starts on everything',
-    'baseball pop up, first time doing this',
+    'all football tonight 🏈',
     'deals already flying',
     'its stacked tonight',
     'free shipping so stack em up 🙌',

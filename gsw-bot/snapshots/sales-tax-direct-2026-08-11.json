@@ -1,0 +1,174 @@
+{
+  "tab": "Sales Tax (Direct)",
+  "capturedAt": "2026-08-11T22:08:28.155Z",
+  "spreadsheetId": "170DFyYMt0yQTZ4eQE4GnWFmVPvVp7gm5t3xAU2ys6zA",
+  "sheetId": 1042972672,
+  "gridProperties": {
+    "rowCount": 1000,
+    "columnCount": 26,
+    "hideGridlines": true,
+    "rowGroupControlAfter": true,
+    "columnGroupControlAfter": true
+  },
+  "range": "'Sales Tax (Direct)'!A1:Z1000",
+  "formulas": [
+    [
+      "NJ Sales Tax — Direct Sales Only (you remit these via ST-50, quarterly)"
+    ],
+    [],
+    [
+      "Tax year",
+      2026,
+      "← change as needed"
+    ],
+    [
+      "NJ rate",
+      0.06625
+    ],
+    [],
+    [
+      "Quarter",
+      "Period start",
+      "Period end",
+      "Direct taxable sales ($)",
+      "Expected tax ($)",
+      "Tax collected ($)",
+      "Variance ($)",
+      "of which barter/trade ($)"
+    ],
+    [
+      "Q1",
+      "=DATE($B$3,1,1)",
+      "=DATE($B$3,3,31)",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B7,Sales!$B:$B,\"<=\"&C7)",
+      "=D7*$B$4",
+      "=SUMIFS(Sales!$J:$J,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B7,Sales!$B:$B,\"<=\"&C7)",
+      "=F7-E7",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$C:$C,\"Trade\",Sales!$B:$B,\">=\"&B7,Sales!$B:$B,\"<=\"&C7)"
+    ],
+    [
+      "Q2",
+      "=DATE($B$3,4,1)",
+      "=DATE($B$3,6,30)",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B8,Sales!$B:$B,\"<=\"&C8)",
+      "=D8*$B$4",
+      "=SUMIFS(Sales!$J:$J,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B8,Sales!$B:$B,\"<=\"&C8)",
+      "=F8-E8",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$C:$C,\"Trade\",Sales!$B:$B,\">=\"&B8,Sales!$B:$B,\"<=\"&C8)"
+    ],
+    [
+      "Q3",
+      "=DATE($B$3,7,1)",
+      "=DATE($B$3,9,30)",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B9,Sales!$B:$B,\"<=\"&C9)",
+      "=D9*$B$4",
+      "=SUMIFS(Sales!$J:$J,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B9,Sales!$B:$B,\"<=\"&C9)",
+      "=F9-E9",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$C:$C,\"Trade\",Sales!$B:$B,\">=\"&B9,Sales!$B:$B,\"<=\"&C9)"
+    ],
+    [
+      "Q4",
+      "=DATE($B$3,10,1)",
+      "=DATE($B$3,12,31)",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B10,Sales!$B:$B,\"<=\"&C10)",
+      "=D10*$B$4",
+      "=SUMIFS(Sales!$J:$J,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B10,Sales!$B:$B,\"<=\"&C10)",
+      "=F10-E10",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$C:$C,\"Trade\",Sales!$B:$B,\">=\"&B10,Sales!$B:$B,\"<=\"&C10)"
+    ],
+    [
+      "Total",
+      "",
+      "",
+      "=SUM(D7:D10)",
+      "=SUM(E7:E10)",
+      "=SUM(F7:F10)",
+      "=SUM(G7:G10)",
+      "=SUM(H7:H10)"
+    ],
+    [],
+    [
+      "Barter/trade sales are NJ-taxable at fair market value but collect no cash — the tax on the “of which barter” amount must be remitted out of pocket. Trades with a dealer for resale (ST-3) should not sit in this table at all."
+    ]
+  ],
+  "values": [
+    [
+      "NJ Sales Tax — Direct Sales Only (you remit these via ST-50, quarterly)"
+    ],
+    [],
+    [
+      "Tax year",
+      2026,
+      "← change as needed"
+    ],
+    [
+      "NJ rate",
+      0.06625
+    ],
+    [],
+    [
+      "Quarter",
+      "Period start",
+      "Period end",
+      "Direct taxable sales ($)",
+      "Expected tax ($)",
+      "Tax collected ($)",
+      "Variance ($)",
+      "of which barter/trade ($)"
+    ],
+    [
+      "Q1",
+      46023,
+      46112,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      "Q2",
+      46113,
+      46203,
+      983,
+      65.12375,
+      0,
+      -65.12375,
+      0
+    ],
+    [
+      "Q3",
+      46204,
+      46295,
+      5951,
+      394.25375,
+      0,
+      -394.25375,
+      1755.0000000000002
+    ],
+    [
+      "Q4",
+      46296,
+      46387,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      "Total",
+      "",
+      "",
+      6934,
+      459.37750000000005,
+      0,
+      -459.37750000000005,
+      1755.0000000000002
+    ],
+    [],
+    [
+      "Barter/trade sales are NJ-taxable at fair market value but collect no cash — the tax on the “of which barter” amount must be remitted out of pocket. Trades with a dealer for resale (ST-3) should not sit in this table at all."
+    ]
+  ]
+}

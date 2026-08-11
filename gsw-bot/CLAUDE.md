@@ -137,12 +137,14 @@ rejected it. Add new enum values to `VALIDATION` only.
 
 ### Trades and NJ sales tax
 
-The **`Sales Tax (Direct)`** tab (quarterly ST-50 worksheet) sweeps every sale where
-**`Who remitted` (Sales col K) = "Me"**:
+The **`Sales Tax (Direct)`** tab sweeps every sale where **`Who remitted` (Sales col K) = "Me"**:
 
 ```
-D<q> = SUMIFS(Sales!$G:$G, Sales!$K:$K,"Me", Sales!$B:$B,">="&B<q>, …"<="&C<q>)
+D<r> = SUMIFS(Sales!$G:$G, Sales!$K:$K,"Me", Sales!$B:$B,">="&B<r>, …"<="&C<r>)
 ```
+
+The formula is parameterised by each row's own `B`/`C` period bounds, which is why the tab could
+be re-cut from quarters to months without touching its substance — see below.
 
 `trade.js` writes **`K: 'Me'`** on trade sales rows — no platform remits on a barter deal — so
 **trades land in the ST-50 taxable base at FMV**. Owner's decision (2026-08-01): correct for
@@ -152,13 +154,37 @@ changes hands.
 ⚠️ A trade with a **dealer for resale** should be exempt under ST-3 and should *not* sit in that
 table. There is no automatic detection — set `K` accordingly when that happens.
 
-Column **H, "of which barter/trade ($)"**, breaks the barter portion out per quarter so the
+Column **H, "of which barter/trade ($)"**, breaks the barter portion out per period so the
 variance column is self-explaining: barter is taxable but collects no cash, so tax on that
 amount is remitted out of pocket rather than being money you failed to collect.
 
 **Not encoded, ask the CPA:** FMV substantiation (trade "book value" is routinely inflated, and
 FMV sets both revenue *and* the new basis — put comps in the notes); ordinary-income vs.
 collectibles characterization.
+
+### The tab is monthly, and monthly does NOT replace quarterly
+
+Rebuilt 2026-08-11 as **12 month rows + a quarter subtotal after every third + a year total**.
+
+⚠️ **ST-51 (monthly) is a prepayment, not a replacement.** It covers months 1 and 2 of a quarter;
+month 3 is always settled on the quarterly **ST-50**, which is filed either way. A months-only
+table would have dropped the number actually filed — hence the `Q<n> (ST-50)` subtotal rows.
+
+It applies only if **prior-year NJ tax collected > $30,000** *and* that month's tax > **$500**.
+`B5` holds the prior-year figure (0 = off, so col I reads `—` everywhere, which is the correct
+answer at current volume). Col I encodes all three conditions plus the due date — the 20th of the
+following month, via `EOMONTH(B<r>,0)+20`.
+
+⚠️ The `$500` test uses **E (tax due)**, not F (tax collected), because barter owes tax that is
+never collected. That's a judgment call flagged in the tab's footnotes — confirm with the CPA.
+
+**Year total sums the four quarter rows, not the twelve month rows** — summing months would
+double-count against the subtotals if a row were ever inserted.
+
+Layout is positional (`monthRow(i) = 8 + floor(i/3)*4 + i%3`). Rebuild with
+`restructure-sales-tax.js`, and **always snapshot first** with `snapshot-tab.js`: the old
+quarterly figures are the only oracle proving a monthly split rolls up correctly.
+`verify-sales-tax.js` does exactly that check against `snapshots/`.
 
 ## A sale's money is stated once and split across its rows
 
@@ -285,6 +311,9 @@ a live formula would silently change the P&L. Convert them only deliberately.
 | `add-payment-method.js [--set P-####=Method …] [--confirm]` | Install Purchases col U (Payment method) header + dropdown; `--set` backfills named purchases (never guesses, never overwrites) | with `--confirm` |
 | `record-trade.js <trade.json> [--confirm]` | CLI over `trade.js`: record one trade end to end — Sales rows out, Purchases row in, Inventory rows, live formulas | with `--confirm` |
 | `trades-audit.js` | Cross-check both sides of every trade: linkage, reconciliation, $0 FMV, traded items not marked Sold | read-only |
+| `snapshot-tab.js "<tab>" [--confirm]` | Freeze a tab before restructuring it: in-sheet copy with formulas replaced by their values, plus `snapshots/<tab>-<date>.json` of every formula and value | with `--confirm` |
+| `restructure-sales-tax.js [--confirm]` | Rebuild Sales Tax (Direct) as 12 monthly rows + quarterly ST-50 subtotals + ST-51 flag; refuses to run without a snapshot | with `--confirm` |
+| `verify-sales-tax.js` | Check the monthly rollup reproduces the snapshot's quarterly figures exactly, plus month-boundary checks | read-only |
 
 Typical flow after adding inventory: run `audit-sales.js`; for a new multi-item row use
 `fill-alloc.js <ItemID> --confirm`; for a bulk-remainder row use

@@ -13,6 +13,16 @@
 //      snapshot that still has the original quarterly shape.
 //   2. The 2026-08-25 trade-in-credit rebuild moved every money column (D..K), so any hardcoded
 //      index now reads the wrong field.
+//
+// Two kinds of check live here, and only one of them needs the oracle:
+//
+//   · STRUCTURAL — months roll into their quarter, quarters into the year, and the 12 periods
+//     tile the year exactly once. No oracle required; these hold forever, however the tab is
+//     re-cut.
+//   · MIGRATION — "does the monthly split reproduce the old quarterly figures". Only answerable
+//     while the snapshot and the sheet describe the SAME sales. Once more sales are recorded the
+//     totals legitimately diverge, so quarters still open at capture time report their drift and
+//     are skipped rather than raising a false "restore from snapshot".
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
@@ -201,6 +211,35 @@ function locateRows(grid) {
       ? '  ✓ credit = barter FMV − cash boot, and base = gross − credit, in all 12 months.'
       : '  ✓ credit is $0 in all 12 months (exclusion is OFF) and base = gross.');
   }
+
+  // ── Structural checks: these need no oracle and hold forever, however the tab is re-cut.
+  // Months must roll into their quarter, quarters into the year, and the 12 periods must tile
+  // the year exactly once. Columns come from the content map, so an eleven-column tab and the
+  // old nine-column one both check correctly.
+  console.log('\n──────── STRUCTURAL CHECKS ────────');
+  const ROLLUP = [[C.base, 'taxable'], [C.expected, 'tax'], [C.barter, 'barter']]
+    .filter(([c]) => c !== undefined);
+  nLoc.quarters.forEach((qr, q) => {
+    for (const [c, name] of ROLLUP) {
+      const sum = [0, 1, 2].reduce((s, k) => s + num(monthRow(q * 3 + k), c), 0);
+      check(`Q${q + 1} ${name} = its three months`, num(qr, c), sum);
+    }
+  });
+  for (const [c, name] of ROLLUP) {
+    const sum = nLoc.quarters.reduce((s, qr) => s + num(qr, c), 0);
+    check(`Year ${name} = the four quarters`, num(nLoc.total, c), sum);
+  }
+
+  // The 12 periods must tile the year exactly once — no gap, no overlap, no spill.
+  let contiguous = true;
+  for (let i = 0; i < 12; i++) {
+    const r = monthRow(i);
+    if (num(r, 2) < num(r, 1)) contiguous = false;
+    if (i > 0 && num(r, 1) !== num(monthRow(i - 1), 2) + 1) contiguous = false;
+  }
+  if (!contiguous) failures++;
+  console.log(`  ${contiguous ? '✓' : '✗'} Months tile the year with no gap or overlap   ` +
+    `${serialToISO(num(monthRow(0), 1))} … ${serialToISO(num(monthRow(11), 2))}`);
 
   console.log('\n──────── BOUNDARY CHECKS ────────');
   const feb = serialToISO(num(monthRow(1), 2));

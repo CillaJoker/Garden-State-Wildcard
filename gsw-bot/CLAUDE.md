@@ -232,13 +232,53 @@ never collected. That's a judgment call flagged in the tab's footnotes — confi
 and ST-51 is **L** (was I). Anything reading this tab by column index needs the new map; see the
 table in "Trades and NJ sales tax" above.
 
+### Price basis — is tax on top of the price, or inside it? (`B6`)
+
+⚠️ **The column letters in this section predate the 2026-08-25 rebuild above.** Where the prose
+says "col E" for the tax read **`I`**, and where it says "col H" for barter read **`E`**. The
+substance is unchanged — only the letters moved.
+
+Col E followed `D × rate` from the start, i.e. it assumed col G is a **pre-tax** price and tax was
+charged on top. But **Sales col J ("Sales tax collected") is $0 on every "Me" row** — nothing was
+ever actually added at the register. If a card goes out the door at $20 and $20 is all that comes
+back, that $20 already *includes* the tax, and the right math is a gross-up.
+
+`B6` makes the choice explicit instead of implied by a formula:
+
+| `B6` | col E |
+|---|---|
+| `Added on top (prices are pre-tax)` | `D×rate` — the original behaviour, and the default |
+| `Included in the price` | `(D−H) − (D−H)/(1+rate) + H×rate` |
+
+⚠️ **Barter is carved out of the gross-up.** A trade's FMV *is* the taxable receipt — there is no
+price with tax buried inside it — so col H is taxed at the rate under **both** settings. Grossing
+barter up would understate it.
+
+⚠️ **An unknown `B6` value yields `#N/A`, deliberately.** The dropdown constrains typing in the UI
+but *not* the API — `values.update` writes straight past data validation. A plain IF/ELSE would let
+a typo fall silently into the "added on top" branch and quietly change the tax owed; `#N/A`
+propagates through month, quarter and year rows instead, where it can't be misread as a figure.
+
+**Which basis is correct is a CPA question, not a spreadsheet one.** NJ requires tax to be
+separately stated to the buyer, and backing it out of an out-the-door price normally needs
+substantiation (e.g. a posted "prices include sales tax" sign). The default is the conservative,
+higher number. At 2026-08-23 the difference is $713.45 vs $682.39 on $10,769 of "Me" sales.
+
+Also note col D excludes **col H shipping**, which NJ generally treats as part of a taxable
+receipt. Immaterial so far (one sale, $13.24) but wrong in principle once shipping volume grows.
+
 **Year total sums the four quarter rows, not the twelve month rows** — summing months would
 double-count against the subtotals if a row were ever inserted.
 
 Layout is positional (`monthRow(i) = 8 + floor(i/3)*4 + i%3`). Rebuild with
-`restructure-sales-tax.js`, and **always snapshot first** with `snapshot-tab.js`: the old
-quarterly figures are the only oracle proving a monthly split rolls up correctly.
-`verify-sales-tax.js` does exactly that check against `snapshots/`.
+`restructure-sales-tax.js`, and **always snapshot first** with `snapshot-tab.js`.
+
+`verify-sales-tax.js` checks the tab's **structure** — months roll into their quarter, quarters
+into the year, and the twelve periods tile the year exactly once. Those hold forever. It also
+replays the original quarterly→monthly comparison, but **only while the snapshot still describes
+the same sales**: once more sales are recorded the totals legitimately diverge, so it reports the
+drift and skips rather than raising a false "restore from snapshot". Comparing live figures to a
+frozen snapshot can only ever prove anything on migration day.
 
 ⚠️ **`restructure-sales-tax.js` clears `A1:Z200` and rewrites it — anything it does not
 explicitly re-emit is destroyed.** The `B6` price-basis toggle was added to the live sheet by
@@ -424,7 +464,9 @@ a live formula would silently change the P&L. Convert them only deliberately.
 | `trades-audit.js` | Cross-check both sides of every trade: linkage, reconciliation, $0 FMV, traded items not marked Sold | read-only |
 | `snapshot-tab.js "<tab>" [--confirm]` | Freeze a tab before restructuring it: in-sheet copy with formulas replaced by their values, plus `snapshots/<tab>-<date>.json` of every formula and value | with `--confirm` |
 | `restructure-sales-tax.js [--confirm]` | Rebuild Sales Tax (Direct) as 12 monthly rows + quarterly ST-50 subtotals + ST-51 flag; refuses to run without a snapshot | with `--confirm` |
-| `verify-sales-tax.js` | Check the rollup against the pre-monthly snapshot (closed quarters only), the trade-in credit arithmetic, and month boundaries | read-only |
+| `add-tax-toggle.js [--confirm]` | Install the `B6` price-basis toggle (tax on top vs. included) + the three-way tax formula | with `--confirm` |
+| `verify-sales-tax.js` | Structural checks that need no oracle (months→quarters→year, periods tile the year), the trade-in credit arithmetic, and month boundaries; replays the quarterly migration check against the pre-monthly snapshot for closed quarters only | read-only |
+| `verify-tax-toggle.js` | Exercise BOTH price bases, prove barter is unaffected and "added on top" still matches the snapshot | flips `B6`, restores it |
 
 Typical flow after adding inventory: run `audit-sales.js`; for a new multi-item row use
 `fill-alloc.js <ItemID> --confirm`; for a bulk-remainder row use

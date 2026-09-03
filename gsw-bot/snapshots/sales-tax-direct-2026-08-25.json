@@ -1,0 +1,490 @@
+{
+  "tab": "Sales Tax (Direct)",
+  "capturedAt": "2026-08-25T16:22:48.467Z",
+  "spreadsheetId": "170DFyYMt0yQTZ4eQE4GnWFmVPvVp7gm5t3xAU2ys6zA",
+  "sheetId": 1042972672,
+  "gridProperties": {
+    "rowCount": 1000,
+    "columnCount": 26,
+    "hideGridlines": true,
+    "rowGroupControlAfter": true,
+    "columnGroupControlAfter": true
+  },
+  "range": "'Sales Tax (Direct)'!A1:Z1000",
+  "formulas": [
+    [
+      "NJ Sales Tax — Direct Sales Only (monthly ST-51 prepayments; quarterly ST-50 return)"
+    ],
+    [],
+    [
+      "Tax year",
+      2026,
+      "← change as needed"
+    ],
+    [
+      "NJ rate",
+      0.06625
+    ],
+    [
+      "Prior-year NJ tax collected ($)",
+      0,
+      "← ST-51 prepayments only apply above $30,000"
+    ],
+    [
+      "Price basis",
+      "Included in the price",
+      "← how prices were quoted; drives col E only"
+    ],
+    [
+      "Period",
+      "Period start",
+      "Period end",
+      "Direct taxable sales ($)",
+      "Expected tax ($)",
+      "Tax collected ($)",
+      "Variance ($)",
+      "of which barter/trade ($)",
+      "ST-51 required?"
+    ],
+    [
+      "Jan",
+      "=DATE($B$3,1,1)",
+      "=EOMONTH(DATE($B$3,1,1),0)",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B8,Sales!$B:$B,\"<=\"&C8)",
+      "=IF($B$6=\"Included in the price\",(D8-H8)-(D8-H8)/(1+$B$4)+H8*$B$4,IF($B$6=\"Added on top (prices are pre-tax)\",D8*$B$4,NA()))",
+      "=SUMIFS(Sales!$J:$J,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B8,Sales!$B:$B,\"<=\"&C8)",
+      "=F8-E8",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$C:$C,\"Trade\",Sales!$B:$B,\">=\"&B8,Sales!$B:$B,\"<=\"&C8)",
+      "=IF($B$5<=30000,\"—\",IF(MOD(MONTH(B8),3)=0,\"— (settled on ST-50)\",IF(E8>500,\"ST-51 due \"&TEXT(EOMONTH(B8,0)+20,\"mmm d\"),\"—\")))"
+    ],
+    [
+      "Feb",
+      "=DATE($B$3,2,1)",
+      "=EOMONTH(DATE($B$3,2,1),0)",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B9,Sales!$B:$B,\"<=\"&C9)",
+      "=IF($B$6=\"Included in the price\",(D9-H9)-(D9-H9)/(1+$B$4)+H9*$B$4,IF($B$6=\"Added on top (prices are pre-tax)\",D9*$B$4,NA()))",
+      "=SUMIFS(Sales!$J:$J,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B9,Sales!$B:$B,\"<=\"&C9)",
+      "=F9-E9",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$C:$C,\"Trade\",Sales!$B:$B,\">=\"&B9,Sales!$B:$B,\"<=\"&C9)",
+      "=IF($B$5<=30000,\"—\",IF(MOD(MONTH(B9),3)=0,\"— (settled on ST-50)\",IF(E9>500,\"ST-51 due \"&TEXT(EOMONTH(B9,0)+20,\"mmm d\"),\"—\")))"
+    ],
+    [
+      "Mar",
+      "=DATE($B$3,3,1)",
+      "=EOMONTH(DATE($B$3,3,1),0)",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B10,Sales!$B:$B,\"<=\"&C10)",
+      "=IF($B$6=\"Included in the price\",(D10-H10)-(D10-H10)/(1+$B$4)+H10*$B$4,IF($B$6=\"Added on top (prices are pre-tax)\",D10*$B$4,NA()))",
+      "=SUMIFS(Sales!$J:$J,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B10,Sales!$B:$B,\"<=\"&C10)",
+      "=F10-E10",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$C:$C,\"Trade\",Sales!$B:$B,\">=\"&B10,Sales!$B:$B,\"<=\"&C10)",
+      "=IF($B$5<=30000,\"—\",IF(MOD(MONTH(B10),3)=0,\"— (settled on ST-50)\",IF(E10>500,\"ST-51 due \"&TEXT(EOMONTH(B10,0)+20,\"mmm d\"),\"—\")))"
+    ],
+    [
+      "Q1 (ST-50)",
+      "=DATE($B$3,1,1)",
+      "=EOMONTH(DATE($B$3,3,1),0)",
+      "=SUM(D8:D10)",
+      "=SUM(E8:E10)",
+      "=SUM(F8:F10)",
+      "=SUM(G8:G10)",
+      "=SUM(H8:H10)",
+      "=\"file ST-50 by \"&TEXT(EOMONTH(C11,0)+20,\"mmm d\")"
+    ],
+    [
+      "Apr",
+      "=DATE($B$3,4,1)",
+      "=EOMONTH(DATE($B$3,4,1),0)",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B12,Sales!$B:$B,\"<=\"&C12)",
+      "=IF($B$6=\"Included in the price\",(D12-H12)-(D12-H12)/(1+$B$4)+H12*$B$4,IF($B$6=\"Added on top (prices are pre-tax)\",D12*$B$4,NA()))",
+      "=SUMIFS(Sales!$J:$J,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B12,Sales!$B:$B,\"<=\"&C12)",
+      "=F12-E12",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$C:$C,\"Trade\",Sales!$B:$B,\">=\"&B12,Sales!$B:$B,\"<=\"&C12)",
+      "=IF($B$5<=30000,\"—\",IF(MOD(MONTH(B12),3)=0,\"— (settled on ST-50)\",IF(E12>500,\"ST-51 due \"&TEXT(EOMONTH(B12,0)+20,\"mmm d\"),\"—\")))"
+    ],
+    [
+      "May",
+      "=DATE($B$3,5,1)",
+      "=EOMONTH(DATE($B$3,5,1),0)",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B13,Sales!$B:$B,\"<=\"&C13)",
+      "=IF($B$6=\"Included in the price\",(D13-H13)-(D13-H13)/(1+$B$4)+H13*$B$4,IF($B$6=\"Added on top (prices are pre-tax)\",D13*$B$4,NA()))",
+      "=SUMIFS(Sales!$J:$J,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B13,Sales!$B:$B,\"<=\"&C13)",
+      "=F13-E13",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$C:$C,\"Trade\",Sales!$B:$B,\">=\"&B13,Sales!$B:$B,\"<=\"&C13)",
+      "=IF($B$5<=30000,\"—\",IF(MOD(MONTH(B13),3)=0,\"— (settled on ST-50)\",IF(E13>500,\"ST-51 due \"&TEXT(EOMONTH(B13,0)+20,\"mmm d\"),\"—\")))"
+    ],
+    [
+      "Jun",
+      "=DATE($B$3,6,1)",
+      "=EOMONTH(DATE($B$3,6,1),0)",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B14,Sales!$B:$B,\"<=\"&C14)",
+      "=IF($B$6=\"Included in the price\",(D14-H14)-(D14-H14)/(1+$B$4)+H14*$B$4,IF($B$6=\"Added on top (prices are pre-tax)\",D14*$B$4,NA()))",
+      "=SUMIFS(Sales!$J:$J,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B14,Sales!$B:$B,\"<=\"&C14)",
+      "=F14-E14",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$C:$C,\"Trade\",Sales!$B:$B,\">=\"&B14,Sales!$B:$B,\"<=\"&C14)",
+      "=IF($B$5<=30000,\"—\",IF(MOD(MONTH(B14),3)=0,\"— (settled on ST-50)\",IF(E14>500,\"ST-51 due \"&TEXT(EOMONTH(B14,0)+20,\"mmm d\"),\"—\")))"
+    ],
+    [
+      "Q2 (ST-50)",
+      "=DATE($B$3,4,1)",
+      "=EOMONTH(DATE($B$3,6,1),0)",
+      "=SUM(D12:D14)",
+      "=SUM(E12:E14)",
+      "=SUM(F12:F14)",
+      "=SUM(G12:G14)",
+      "=SUM(H12:H14)",
+      "=\"file ST-50 by \"&TEXT(EOMONTH(C15,0)+20,\"mmm d\")"
+    ],
+    [
+      "Jul",
+      "=DATE($B$3,7,1)",
+      "=EOMONTH(DATE($B$3,7,1),0)",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B16,Sales!$B:$B,\"<=\"&C16)",
+      "=IF($B$6=\"Included in the price\",(D16-H16)-(D16-H16)/(1+$B$4)+H16*$B$4,IF($B$6=\"Added on top (prices are pre-tax)\",D16*$B$4,NA()))",
+      "=SUMIFS(Sales!$J:$J,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B16,Sales!$B:$B,\"<=\"&C16)",
+      "=F16-E16",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$C:$C,\"Trade\",Sales!$B:$B,\">=\"&B16,Sales!$B:$B,\"<=\"&C16)",
+      "=IF($B$5<=30000,\"—\",IF(MOD(MONTH(B16),3)=0,\"— (settled on ST-50)\",IF(E16>500,\"ST-51 due \"&TEXT(EOMONTH(B16,0)+20,\"mmm d\"),\"—\")))"
+    ],
+    [
+      "Aug",
+      "=DATE($B$3,8,1)",
+      "=EOMONTH(DATE($B$3,8,1),0)",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B17,Sales!$B:$B,\"<=\"&C17)",
+      "=IF($B$6=\"Included in the price\",(D17-H17)-(D17-H17)/(1+$B$4)+H17*$B$4,IF($B$6=\"Added on top (prices are pre-tax)\",D17*$B$4,NA()))",
+      "=SUMIFS(Sales!$J:$J,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B17,Sales!$B:$B,\"<=\"&C17)",
+      "=F17-E17",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$C:$C,\"Trade\",Sales!$B:$B,\">=\"&B17,Sales!$B:$B,\"<=\"&C17)",
+      "=IF($B$5<=30000,\"—\",IF(MOD(MONTH(B17),3)=0,\"— (settled on ST-50)\",IF(E17>500,\"ST-51 due \"&TEXT(EOMONTH(B17,0)+20,\"mmm d\"),\"—\")))"
+    ],
+    [
+      "Sep",
+      "=DATE($B$3,9,1)",
+      "=EOMONTH(DATE($B$3,9,1),0)",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B18,Sales!$B:$B,\"<=\"&C18)",
+      "=IF($B$6=\"Included in the price\",(D18-H18)-(D18-H18)/(1+$B$4)+H18*$B$4,IF($B$6=\"Added on top (prices are pre-tax)\",D18*$B$4,NA()))",
+      "=SUMIFS(Sales!$J:$J,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B18,Sales!$B:$B,\"<=\"&C18)",
+      "=F18-E18",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$C:$C,\"Trade\",Sales!$B:$B,\">=\"&B18,Sales!$B:$B,\"<=\"&C18)",
+      "=IF($B$5<=30000,\"—\",IF(MOD(MONTH(B18),3)=0,\"— (settled on ST-50)\",IF(E18>500,\"ST-51 due \"&TEXT(EOMONTH(B18,0)+20,\"mmm d\"),\"—\")))"
+    ],
+    [
+      "Q3 (ST-50)",
+      "=DATE($B$3,7,1)",
+      "=EOMONTH(DATE($B$3,9,1),0)",
+      "=SUM(D16:D18)",
+      "=SUM(E16:E18)",
+      "=SUM(F16:F18)",
+      "=SUM(G16:G18)",
+      "=SUM(H16:H18)",
+      "=\"file ST-50 by \"&TEXT(EOMONTH(C19,0)+20,\"mmm d\")"
+    ],
+    [
+      "Oct",
+      "=DATE($B$3,10,1)",
+      "=EOMONTH(DATE($B$3,10,1),0)",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B20,Sales!$B:$B,\"<=\"&C20)",
+      "=IF($B$6=\"Included in the price\",(D20-H20)-(D20-H20)/(1+$B$4)+H20*$B$4,IF($B$6=\"Added on top (prices are pre-tax)\",D20*$B$4,NA()))",
+      "=SUMIFS(Sales!$J:$J,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B20,Sales!$B:$B,\"<=\"&C20)",
+      "=F20-E20",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$C:$C,\"Trade\",Sales!$B:$B,\">=\"&B20,Sales!$B:$B,\"<=\"&C20)",
+      "=IF($B$5<=30000,\"—\",IF(MOD(MONTH(B20),3)=0,\"— (settled on ST-50)\",IF(E20>500,\"ST-51 due \"&TEXT(EOMONTH(B20,0)+20,\"mmm d\"),\"—\")))"
+    ],
+    [
+      "Nov",
+      "=DATE($B$3,11,1)",
+      "=EOMONTH(DATE($B$3,11,1),0)",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B21,Sales!$B:$B,\"<=\"&C21)",
+      "=IF($B$6=\"Included in the price\",(D21-H21)-(D21-H21)/(1+$B$4)+H21*$B$4,IF($B$6=\"Added on top (prices are pre-tax)\",D21*$B$4,NA()))",
+      "=SUMIFS(Sales!$J:$J,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B21,Sales!$B:$B,\"<=\"&C21)",
+      "=F21-E21",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$C:$C,\"Trade\",Sales!$B:$B,\">=\"&B21,Sales!$B:$B,\"<=\"&C21)",
+      "=IF($B$5<=30000,\"—\",IF(MOD(MONTH(B21),3)=0,\"— (settled on ST-50)\",IF(E21>500,\"ST-51 due \"&TEXT(EOMONTH(B21,0)+20,\"mmm d\"),\"—\")))"
+    ],
+    [
+      "Dec",
+      "=DATE($B$3,12,1)",
+      "=EOMONTH(DATE($B$3,12,1),0)",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B22,Sales!$B:$B,\"<=\"&C22)",
+      "=IF($B$6=\"Included in the price\",(D22-H22)-(D22-H22)/(1+$B$4)+H22*$B$4,IF($B$6=\"Added on top (prices are pre-tax)\",D22*$B$4,NA()))",
+      "=SUMIFS(Sales!$J:$J,Sales!$K:$K,\"Me\",Sales!$B:$B,\">=\"&B22,Sales!$B:$B,\"<=\"&C22)",
+      "=F22-E22",
+      "=SUMIFS(Sales!$G:$G,Sales!$K:$K,\"Me\",Sales!$C:$C,\"Trade\",Sales!$B:$B,\">=\"&B22,Sales!$B:$B,\"<=\"&C22)",
+      "=IF($B$5<=30000,\"—\",IF(MOD(MONTH(B22),3)=0,\"— (settled on ST-50)\",IF(E22>500,\"ST-51 due \"&TEXT(EOMONTH(B22,0)+20,\"mmm d\"),\"—\")))"
+    ],
+    [
+      "Q4 (ST-50)",
+      "=DATE($B$3,10,1)",
+      "=EOMONTH(DATE($B$3,12,1),0)",
+      "=SUM(D20:D22)",
+      "=SUM(E20:E22)",
+      "=SUM(F20:F22)",
+      "=SUM(G20:G22)",
+      "=SUM(H20:H22)",
+      "=\"file ST-50 by \"&TEXT(EOMONTH(C23,0)+20,\"mmm d\")"
+    ],
+    [
+      "Year total",
+      "",
+      "",
+      "=SUM(D11,D15,D19,D23)",
+      "=SUM(E11,E15,E19,E23)",
+      "=SUM(F11,F15,F19,F23)",
+      "=SUM(G11,G15,G19,G23)",
+      "=SUM(H11,H15,H19,H23)"
+    ],
+    [],
+    [
+      "Barter/trade sales are NJ-taxable at fair market value but collect no cash — the tax on the “of which barter” amount must be remitted out of pocket. Trades with a dealer for resale (ST-3) should not sit in this table at all."
+    ],
+    [
+      "ST-51 (monthly) is a PREPAYMENT, not a replacement: it covers months 1 and 2 of each quarter when required, and month 3 is always settled on the quarterly ST-50, which is filed either way."
+    ],
+    [
+      "The $500 monthly test above uses tax DUE, not tax collected, because barter sales owe tax that was never collected. Confirm that reading with the CPA."
+    ],
+    [
+      "Col E follows the “Price basis” toggle in B6. “Added on top” = price x rate (what the tab did before 2026-08-23). “Included in the price” = gross-up, tax = gross - gross/(1+rate), which is the right math when a card is sold at an out-the-door price with no tax added at the register. Barter (col H) is taxed at the rate under BOTH settings: a trade’s FMV is itself the taxable receipt, so there is no tax buried inside it to back out."
+    ],
+    [
+      "Under “Included in the price”, col D is GROSS receipts — the taxable receipts figure for the ST-50 is D minus the cash-side tax in E. NJ requires sales tax to be separately stated to the buyer, and backing tax out of an out-the-door price normally needs substantiation (e.g. a posted “prices include sales tax” sign). Confirm which basis applies with the CPA before filing."
+    ]
+  ],
+  "values": [
+    [
+      "NJ Sales Tax — Direct Sales Only (monthly ST-51 prepayments; quarterly ST-50 return)"
+    ],
+    [],
+    [
+      "Tax year",
+      2026,
+      "← change as needed"
+    ],
+    [
+      "NJ rate",
+      0.06625
+    ],
+    [
+      "Prior-year NJ tax collected ($)",
+      0,
+      "← ST-51 prepayments only apply above $30,000"
+    ],
+    [
+      "Price basis",
+      "Included in the price",
+      "← how prices were quoted; drives col E only"
+    ],
+    [
+      "Period",
+      "Period start",
+      "Period end",
+      "Direct taxable sales ($)",
+      "Expected tax ($)",
+      "Tax collected ($)",
+      "Variance ($)",
+      "of which barter/trade ($)",
+      "ST-51 required?"
+    ],
+    [
+      "Jan",
+      46023,
+      46053,
+      0,
+      0,
+      0,
+      0,
+      0,
+      "—"
+    ],
+    [
+      "Feb",
+      46054,
+      46081,
+      0,
+      0,
+      0,
+      0,
+      0,
+      "—"
+    ],
+    [
+      "Mar",
+      46082,
+      46112,
+      0,
+      0,
+      0,
+      0,
+      0,
+      "—"
+    ],
+    [
+      "Q1 (ST-50)",
+      46023,
+      46112,
+      0,
+      0,
+      0,
+      0,
+      0,
+      "file ST-50 by Apr 20"
+    ],
+    [
+      "Apr",
+      46113,
+      46142,
+      0,
+      0,
+      0,
+      0,
+      0,
+      "—"
+    ],
+    [
+      "May",
+      46143,
+      46173,
+      0,
+      0,
+      0,
+      0,
+      0,
+      "—"
+    ],
+    [
+      "Jun",
+      46174,
+      46203,
+      983,
+      61.077373974208626,
+      0,
+      -61.077373974208626,
+      0,
+      "—"
+    ],
+    [
+      "Q2 (ST-50)",
+      46113,
+      46203,
+      983,
+      61.077373974208626,
+      0,
+      -61.077373974208626,
+      0,
+      "file ST-50 by Jul 20"
+    ],
+    [
+      "Jul",
+      46204,
+      46234,
+      420,
+      26.096131301289518,
+      0,
+      -26.096131301289518,
+      0,
+      "—"
+    ],
+    [
+      "Aug",
+      46235,
+      46265,
+      9366,
+      595.2189698124266,
+      0,
+      -595.2189698124266,
+      3225,
+      "—"
+    ],
+    [
+      "Sep",
+      46266,
+      46295,
+      0,
+      0,
+      0,
+      0,
+      0,
+      "—"
+    ],
+    [
+      "Q3 (ST-50)",
+      46204,
+      46295,
+      9786,
+      621.3151011137161,
+      0,
+      -621.3151011137161,
+      3225,
+      "file ST-50 by Oct 20"
+    ],
+    [
+      "Oct",
+      46296,
+      46326,
+      0,
+      0,
+      0,
+      0,
+      0,
+      "—"
+    ],
+    [
+      "Nov",
+      46327,
+      46356,
+      0,
+      0,
+      0,
+      0,
+      0,
+      "—"
+    ],
+    [
+      "Dec",
+      46357,
+      46387,
+      0,
+      0,
+      0,
+      0,
+      0,
+      "—"
+    ],
+    [
+      "Q4 (ST-50)",
+      46296,
+      46387,
+      0,
+      0,
+      0,
+      0,
+      0,
+      "file ST-50 by Jan 20"
+    ],
+    [
+      "Year total",
+      "",
+      "",
+      10769,
+      682.3924750879247,
+      0,
+      -682.3924750879247,
+      3225
+    ],
+    [],
+    [
+      "Barter/trade sales are NJ-taxable at fair market value but collect no cash — the tax on the “of which barter” amount must be remitted out of pocket. Trades with a dealer for resale (ST-3) should not sit in this table at all."
+    ],
+    [
+      "ST-51 (monthly) is a PREPAYMENT, not a replacement: it covers months 1 and 2 of each quarter when required, and month 3 is always settled on the quarterly ST-50, which is filed either way."
+    ],
+    [
+      "The $500 monthly test above uses tax DUE, not tax collected, because barter sales owe tax that was never collected. Confirm that reading with the CPA."
+    ],
+    [
+      "Col E follows the “Price basis” toggle in B6. “Added on top” = price x rate (what the tab did before 2026-08-23). “Included in the price” = gross-up, tax = gross - gross/(1+rate), which is the right math when a card is sold at an out-the-door price with no tax added at the register. Barter (col H) is taxed at the rate under BOTH settings: a trade’s FMV is itself the taxable receipt, so there is no tax buried inside it to back out."
+    ],
+    [
+      "Under “Included in the price”, col D is GROSS receipts — the taxable receipts figure for the ST-50 is D minus the cash-side tax in E. NJ requires sales tax to be separately stated to the buyer, and backing tax out of an out-the-door price normally needs substantiation (e.g. a posted “prices include sales tax” sign). Confirm which basis applies with the CPA before filing."
+    ]
+  ]
+}

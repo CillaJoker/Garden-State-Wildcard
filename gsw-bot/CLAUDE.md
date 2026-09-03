@@ -147,20 +147,70 @@ The formula is parameterised by each row's own `B`/`C` period bounds, which is w
 be re-cut from quarters to months without touching its substance — see below.
 
 `trade.js` writes **`K: 'Me'`** on trade sales rows — no platform remits on a barter deal — so
-**trades land in the ST-50 taxable base at FMV**. Owner's decision (2026-08-01): correct for
-trades with a **private individual**, which NJ taxes at fair market value even though no cash
-changes hands.
+trades reach the tab. What they contribute to the **taxable base** is where it gets interesting.
 
-⚠️ A trade with a **dealer for resale** should be exempt under ST-3 and should *not* sit in that
-table. There is no automatic detection — set `K` accordingly when that happens.
+**Barter is unambiguously a taxable sale.** N.J.S.A. 54:32B-2 defines "sale" to include
+"exchange or barter", and measures it by consideration "valued in money, **whether received in
+money or otherwise**". The seller owes the tax whether or not it was collected (54:32B-12,
+54:32B-14) — so tax on a barter deal comes out of pocket. All verified against the statute.
 
-Column **H, "of which barter/trade ($)"**, breaks the barter portion out per period so the
-variance column is self-explaining: barter is taxable but collects no cash, so tax on that
-amount is remitted out of pocket rather than being money you failed to collect.
+**But the same statute excludes the trade-in credit.** Sales price excludes the "credit for any
+trade-in of property of the **same kind** accepted in part payment and **intended for resale**",
+if separately stated. N.J.A.C. 18:24-7.4 applies this to tangible personal property generally,
+not just motor vehicles (the "same kind" test is why a boat traded against a car fails it).
+Card-for-card, held for resale, is the shape that fits.
+
+⚠️ **Cash boot is NOT covered by the exclusion.** Cash received is consideration like any other
+and stays fully taxable. So the credit removed is **barter FMV − cash received**, and what
+remains in the base is exactly the cash. An even swap with no boot carries a $0 base.
+
+The tab implements this behind the **`Trade-in credit` toggle in `F6`** (`Excluded` /
+`Not excluded`, strict dropdown):
+
+| col | | |
+|---|---|---|
+| D | Gross direct sales | all `K="Me"` in period |
+| E | of which barter/trade | `Sales!C="Trade"` |
+| F | of which cash boot received | `−SUMIFS(Purchases!S …, "<0")` — only the negative side |
+| G | Trade-in credit excluded | `IF(F6="Excluded", MAX(0, E−F), 0)` |
+| H | Taxable receipts | `D − G` ← **this is the ST-50 base** |
+| I | Expected tax | gross-up or on-top per the `B6` price basis |
+
+Boot is summed off the **Purchases** row, not the Sales rows: a trade has one purchase row but
+one sales row per outgoing card, so joining through Sales would multiply the cash by the card
+count. `trade.js` stamps the same `plan.date` on both sides (`trade.js:257`, `:269`), so the
+period bounds agree.
+
+⚠️⚠️ **This is an UNVERIFIED filing position — 2026 YTD it moves tax due from $682.39 to
+$493.90.** Two gaps, both flagged in the tab's footnotes and both for the CPA:
+
+1. The exclusion requires the credit be **"separately stated on the invoice, bill of sale, or
+   similar document given to the purchaser."** Trades are recorded in this workbook, not on a
+   bill of sale stating a trade-in credit — **that condition is not met on any trade recorded to
+   date.** Fixing it is an operational change, not a code change.
+2. **No NJ guidance was found** applying the same-kind trade-in credit to a two-way collectibles
+   barter, where each side is simultaneously buyer and seller.
+
+Setting `F6` to `Not excluded` files on full FMV — the conservative reading, and what the tab did
+before 2026-08-25. Flipping the toggle is the whole revert; no code change needed.
+
+⚠️ A trade with a **dealer for resale** is exempt under ST-3 — but only if you actually hold a
+fully completed certificate **received within 90 days** of the sale. There is no automatic
+detection: set `K` to something other than `Me` and keep the certificate.
+
+**Also undocumented until now: the `B6` "Price basis" toggle** (added 2026-08-23). `Included in
+the price` grosses tax out of an out-the-door price (`gross − gross/(1+rate)`); `Added on top`
+is `price × rate`. NJ requires tax to be separately stated to the buyer, so the gross-up reading
+needs substantiation (a posted "prices include sales tax" sign). Also a CPA question.
 
 **Not encoded, ask the CPA:** FMV substantiation (trade "book value" is routinely inflated, and
 FMV sets both revenue *and* the new basis — put comps in the notes); ordinary-income vs.
 collectibles characterization.
+
+⚠️ **Provenance note.** Everything in this section before 2026-08-25 was written from model
+knowledge with no citation, and the original footnote ("taxable at fair market value", full stop)
+omitted the trade-in exclusion entirely. Statute citations above were checked against primary
+sources on 2026-08-25. Nothing here is CPA-reviewed.
 
 ### The tab is monthly, and monthly does NOT replace quarterly
 
@@ -171,12 +221,16 @@ month 3 is always settled on the quarterly **ST-50**, which is filed either way.
 table would have dropped the number actually filed — hence the `Q<n> (ST-50)` subtotal rows.
 
 It applies only if **prior-year NJ tax collected > $30,000** *and* that month's tax > **$500**.
-`B5` holds the prior-year figure (0 = off, so col I reads `—` everywhere, which is the correct
-answer at current volume). Col I encodes all three conditions plus the due date — the 20th of the
+`B5` holds the prior-year figure (0 = off, so col L reads `—` everywhere, which is the correct
+answer at current volume). Col L encodes all three conditions plus the due date — the 20th of the
 following month, via `EOMONTH(B<r>,0)+20`.
 
-⚠️ The `$500` test uses **E (tax due)**, not F (tax collected), because barter owes tax that is
+⚠️ The `$500` test uses **I (tax due)**, not J (tax collected), because barter owes tax that is
 never collected. That's a judgment call flagged in the tab's footnotes — confirm with the CPA.
+
+⚠️ Columns moved on 2026-08-25 when the trade-in credit went in — tax due is now **I** (was E)
+and ST-51 is **L** (was I). Anything reading this tab by column index needs the new map; see the
+table in "Trades and NJ sales tax" above.
 
 **Year total sums the four quarter rows, not the twelve month rows** — summing months would
 double-count against the subtotals if a row were ever inserted.
@@ -185,6 +239,19 @@ Layout is positional (`monthRow(i) = 8 + floor(i/3)*4 + i%3`). Rebuild with
 `restructure-sales-tax.js`, and **always snapshot first** with `snapshot-tab.js`: the old
 quarterly figures are the only oracle proving a monthly split rolls up correctly.
 `verify-sales-tax.js` does exactly that check against `snapshots/`.
+
+⚠️ **`restructure-sales-tax.js` clears `A1:Z200` and rewrites it — anything it does not
+explicitly re-emit is destroyed.** The `B6` price-basis toggle was added to the live sheet by
+hand on 2026-08-23 and a blind re-run would have silently reverted it. Both toggles are now read
+back off the sheet and carried across (`priceBasis`, `tradeInCredit`). **If you add a cell to
+this tab by hand, add it to the script in the same change.**
+
+⚠️ **The verifier's oracle must predate the monthly rebuild.** It used to pick the *latest*
+snapshot (`.sort().pop()`), so the second snapshot ever taken would have silently made the tab
+its own oracle. It now scans for a snapshot whose quarter rows sit above row 11, and locates
+every row/column **by header text** rather than by index — which is what let the 2026-08-25
+column shuffle land without rewriting the checks. Quarters still **open** at capture time are
+reported as informational drift, not failures; only closed quarters are binding.
 
 ## A sale's money is stated once and split across its rows
 
@@ -207,6 +274,50 @@ from `trade.js` (now exported), so the parts sum to the stated figure to the cen
 `getInventoryLookup()` / `getInventoryRowData()` read Inventory `A:G` (not `A:C`) with
 `UNFORMATTED_VALUE`, so col G comes back as the **number** the live formula produced rather than
 the formula text.
+
+## ⚠️ Input runs must never span a formula column
+
+`buildRowValueRanges()` (`sheets.js:221`) writes **every cell in an input run**, substituting `''`
+for any column the caller didn't supply. A run that overlaps a formula column therefore **erases
+that formula** on every write — silently, with no error.
+
+**This happened.** The Sales tab gained four computed columns in the 2026-09 rebuild
+(`K` Net payout, `N` Sale price ex-tax, `O` Sales tax on sale, `P` Net margin), which pushed
+`Who remitted` K→J and `Sale status`/`Trade ID` out to `S`/`T`. The live tab's own formulas were
+re-pointed by hand; `schema.js`, `bot.js`, `trade.js` and `restructure-sales-tax.js` were not. The
+next sale the bot wrote — **S-0432** — landed like this:
+
+| what the bot meant | where it went under the new layout |
+|---|---|
+| `K: whoRemitted` (last cell of run `A:K`) | **overwrote the `K` Net payout formula** with the text `Platform` |
+| `J: tax` | went into `J` Who remitted |
+| `O: buyer_state`, `P: notes` (start of run `O:R`) | **erased the `O` and `P` formulas** |
+| `Sale status`, `Trade ID` | never written — they now live at `S`/`T` |
+
+`L`/`M`/`N` survived only because they sit *between* the two runs. Repaired 2026-09-03; runs are
+now `['A:J', 'Q:T']`.
+
+**Check the invariant after any column change** — formula columns must not intersect the runs:
+
+```js
+node -e "const{INPUT_RUNS,COLUMN_MAPS}=require('./schema');
+for(const t of ['sales','purchases','inventory']){
+  const runs=INPUT_RUNS[t].flatMap(r=>{const[a,b]=r.split(':');const o=[];
+    for(let c=a.charCodeAt(0);c<=b.charCodeAt(0);c++)o.push(String.fromCharCode(c));return o;});
+  const bad=COLUMN_MAPS[t].filter(c=>c.type==='FORMULA'&&runs.includes(c.letter));
+  console.log(t,bad.length?'✗ '+bad.map(b=>b.letter).join(','):'✓');}"
+```
+
+`inventory` **is expected to fail** this check: its run `A:I` spans `G` (allocated cost) by
+design. There are no prepared formulas below the data, so the bot writes `''` into an
+already-empty cell and `fill-alloc.js` puts the formula in afterwards — that's the documented
+flow, not a bug. Note that only 21 of 658 inventory rows actually carry a live formula in `G`;
+574 hold static values and 63 are empty (the legacy no-cost-basis rows).
+
+⚠️ **Sales has no "Sales tax collected" input any more.** Tax per sale is derived at `O` from the
+`Sales Tax (Direct)` price-basis and trade-in-credit toggles. A tax figure the owner states at
+entry is folded into Notes by `noteWithTax()` (`bot.js`) rather than dropped — the derived number
+models the sale, the stated one is what actually changed hands.
 
 ## Purchases col U — Payment method
 
@@ -313,7 +424,7 @@ a live formula would silently change the P&L. Convert them only deliberately.
 | `trades-audit.js` | Cross-check both sides of every trade: linkage, reconciliation, $0 FMV, traded items not marked Sold | read-only |
 | `snapshot-tab.js "<tab>" [--confirm]` | Freeze a tab before restructuring it: in-sheet copy with formulas replaced by their values, plus `snapshots/<tab>-<date>.json` of every formula and value | with `--confirm` |
 | `restructure-sales-tax.js [--confirm]` | Rebuild Sales Tax (Direct) as 12 monthly rows + quarterly ST-50 subtotals + ST-51 flag; refuses to run without a snapshot | with `--confirm` |
-| `verify-sales-tax.js` | Check the monthly rollup reproduces the snapshot's quarterly figures exactly, plus month-boundary checks | read-only |
+| `verify-sales-tax.js` | Check the rollup against the pre-monthly snapshot (closed quarters only), the trade-in credit arithmetic, and month boundaries | read-only |
 
 Typical flow after adding inventory: run `audit-sales.js`; for a new multi-item row use
 `fill-alloc.js <ItemID> --confirm`; for a bulk-remainder row use

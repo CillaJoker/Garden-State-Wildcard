@@ -29,7 +29,11 @@ const ID_PREFIXES = {
 const INPUT_RUNS = {
   purchases: ['A:I', 'K:M', 'P:S', 'U:U'],
   inventory: ['A:I'],
-  sales: ['A:K', 'O:R'],
+  // Sales gained four computed columns (K,N,O,P) in the 2026-09 rebuild, which pushed Who
+  // remitted K→J and Sale status / Trade ID out to S,T. These runs MUST stop at J and restart at
+  // Q: buildRowValueRanges() writes every cell in a run, filling anything the caller omitted with
+  // '', so a run that spans a formula column silently erases that formula. See S-0432.
+  sales: ['A:J', 'Q:T'],
   expenses: ['A:G'],
 };
 
@@ -75,20 +79,30 @@ const COLUMN_MAPS = {
     { col: 3,  letter: 'C', field: 'Platform',                 type: 'INPUT' },
     { col: 4,  letter: 'D', field: 'Order #',                  type: 'INPUT' },
     { col: 5,  letter: 'E', field: 'Item ID',                  type: 'INPUT' },
-    { col: 6,  letter: 'F', field: 'Card',                     type: 'FORMULA' },
+    // Marked INPUT because that is what actually happens: the bot writes the card name here.
+    // The sheet PREPARES a VLOOKUP in F on the empty rows below the data
+    // (=IF(E…="","",IFERROR(VLOOKUP(E…,Inventory!$A:$C,3,FALSE()),""))), and every append
+    // overwrites it with static text. Harmless today — the two agree — but if you ever want F
+    // derived, drop F from the writers rather than flipping this back to FORMULA.
+    { col: 6,  letter: 'F', field: 'Card',                     type: 'INPUT' },
     { col: 7,  letter: 'G', field: 'Sale price ($)',           type: 'INPUT' },
     { col: 8,  letter: 'H', field: 'Shipping charged ($)',     type: 'INPUT' },
     { col: 9,  letter: 'I', field: 'Platform fees ($)',        type: 'INPUT' },
-    { col: 10, letter: 'J', field: 'Sales tax collected ($)',  type: 'INPUT' },
-    { col: 11, letter: 'K', field: 'Who remitted',            type: 'INPUT' },
-    { col: 12, letter: 'L', field: 'Net payout ($)',          type: 'FORMULA' },
-    { col: 13, letter: 'M', field: 'COGS ($)',                type: 'FORMULA' },
-    { col: 14, letter: 'N', field: 'Gross profit ($)',        type: 'FORMULA' },
-    { col: 15, letter: 'O', field: 'Buyer state',             type: 'INPUT' },
-    { col: 16, letter: 'P', field: 'Notes',                   type: 'INPUT' },
-    { col: 17, letter: 'Q', field: 'Sale status',             type: 'INPUT' },
-    { col: 18, letter: 'R', field: 'Trade ID',                type: 'INPUT' },
+    { col: 10, letter: 'J', field: 'Who remitted',            type: 'INPUT' },
+    { col: 11, letter: 'K', field: 'Net payout ($)',          type: 'FORMULA' },
+    { col: 12, letter: 'L', field: 'COGS ($)',                type: 'FORMULA' },
+    { col: 13, letter: 'M', field: 'Gross profit ($)',        type: 'FORMULA' },
+    { col: 14, letter: 'N', field: 'Sale price ex-tax ($)',   type: 'FORMULA' },
+    { col: 15, letter: 'O', field: 'Sales tax on sale ($)',   type: 'FORMULA' },
+    { col: 16, letter: 'P', field: 'Net margin (%)',          type: 'FORMULA' },
+    { col: 17, letter: 'Q', field: 'Buyer state',             type: 'INPUT' },
+    { col: 18, letter: 'R', field: 'Notes',                   type: 'INPUT' },
+    { col: 19, letter: 'S', field: 'Sale status',             type: 'INPUT' },
+    { col: 20, letter: 'T', field: 'Trade ID',                type: 'INPUT' },
   ],
+  // ⚠️ There is no longer a "Sales tax collected" INPUT column. Tax per sale is DERIVED at O
+  // from the Sales Tax (Direct) price-basis toggle, so a tax figure the owner states at entry
+  // time has nowhere to go — bot.js folds it into Notes rather than dropping it.
   expenses: [
     { col: 1, letter: 'A', field: 'Date',         type: 'INPUT' },
     { col: 2, letter: 'B', field: 'Category',     type: 'INPUT' },

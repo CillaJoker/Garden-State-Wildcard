@@ -51,6 +51,18 @@ const MISSING_NOISE_WORDS = new Set([
   'expense', 'inventory', 'optional',
 ]);
 
+// Sales no longer has a "Sales tax collected" input column — tax per sale is DERIVED at col O
+// from the Sales Tax (Direct) price basis. When the owner states a tax figure anyway, park it in
+// Notes rather than discarding it: the derived number is a model of the sale, the stated one is
+// what actually changed hands, and only the latter can settle a dispute later.
+function noteWithTax(notes, tax) {
+  const base = notes || '';
+  const t = Number(tax || 0);
+  if (!t) return base;
+  const stamp = `tax collected $${t.toFixed(2)}`;
+  return base ? `${base} — ${stamp}` : stamp;
+}
+
 // "card grade/cert (optional)" → "grade_cert". Normalizes whatever prose the
 // model wrapped a field name in down to a comparable snake_case token.
 function normalizeMissingField(raw) {
@@ -372,8 +384,7 @@ async function writeSale(entry) {
     B: s.date, C: s.platform, D: s.order_no || '', E: it.itemId,
     F: it.card,
     G: money.rows[i].price, H: money.rows[i].ship, I: money.rows[i].fees,
-    J: money.rows[i].tax,
-    K: whoRemitted, O: s.buyer_state || '', P: s.notes || '',
+    J: whoRemitted, Q: s.buyer_state || '', R: noteWithTax(s.notes, money.rows[i].tax),
   })));
   const writtenRows = saleRowIndexes.map((rowIndex) => ({ tab: 'sales', rowIndex }));
 
@@ -545,8 +556,7 @@ async function writeSaleInPlace(entry, lw) {
       A: sId, B: s.date, C: s.platform, D: s.order_no || '', E: itemId,
       F: invData.card,
       G: money.rows[i].price, H: money.rows[i].ship, I: money.rows[i].fees,
-      J: money.rows[i].tax,
-      K: whoRemitted, O: s.buyer_state || '', P: s.notes || '',
+      J: whoRemitted, Q: s.buyer_state || '', R: noteWithTax(s.notes, money.rows[i].tax),
     };
 
     if (i < origSaleRows.length) {

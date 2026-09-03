@@ -255,7 +255,7 @@ async function commitTrade(plan) {
   // 1. Sales rows for the outgoing cards — barter income at FMV.
   const { rowIndexes: saleRows, ids: saleIds } = await appendRows('sales', plan.out.map((o) => ({
     B: plan.date, C: 'Trade', E: o.item, F: o.card, G: o.fmv,
-    K: 'Me', P: plan.notes, Q: 'Completed', R: plan.tradeId,
+    J: 'Me', R: plan.notes, S: 'Completed', T: plan.tradeId,
   })));
 
   // 2. Outgoing inventory → Sold. Status must be exactly "Sold": Dashboard B14 counts

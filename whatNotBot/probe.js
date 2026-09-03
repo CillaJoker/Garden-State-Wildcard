@@ -61,11 +61,11 @@ page.on('response', async (res) => {
 
 // ── dump the interactive elements of the topmost dialog ───────────────────────────────────
 async function dumpDialog(label) {
-  const dialogs = page.locator('[role="dialog"]');
+  const dialogs = page.locator(S.MODAL_SELECTOR);
   const n = await dialogs.count();
   console.log(`\n──────── ${label} — ${n} dialog(s) ────────`);
   if (!n) {
-    console.log('  (no [role="dialog"] on the page — the sheet may not use one)');
+    console.log('  (no modal on the page — the sheet may not use one)');
     return;
   }
   const info = await dialogs.last().evaluate((d) => {
@@ -119,7 +119,7 @@ async function watchForChanges() {
     // Signature = a cheap fingerprint of the dialog's interactive contents.
     const sig = await page
       .evaluate(() => {
-        const d = [...document.querySelectorAll('[role="dialog"]')].pop();
+        const d = [...document.querySelectorAll("dialog[open], [role=\"dialog\"]")].pop();
         if (!d) return 'none';
         return [...d.querySelectorAll('button, input, textarea, [contenteditable], a')]
           .map((e) => `${e.tagName}:${(e.getAttribute('placeholder') ?? e.getAttribute('aria-label') ?? e.innerText ?? '').trim().slice(0, 24)}`)

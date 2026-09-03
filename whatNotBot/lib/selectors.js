@@ -42,8 +42,16 @@ export function parseListCount(label) {
   return Math.round(n * mult);
 }
 
+// Whatnot's modals are native <dialog> elements, which carry an *implicit* ARIA dialog role
+// but no literal role attribute — so the CSS selector '[role="dialog"]' matches none of them.
+// (2026-08-20: this silently broke every modal-driven flow; follow.js crashed with
+// `rows seen: 0` because the followers list never "opened".) Both forms are matched so a
+// revert on Whatnot's side doesn't break this again. `dialog[open]` excludes closed dialogs,
+// which are still in the DOM but display:none.
+export const MODAL_SELECTOR = 'dialog[open], [role="dialog"]';
+
 // The modal that opens as a result.
-export const listDialog = (page) => page.locator('[role="dialog"]').last();
+export const listDialog = (page) => page.locator(MODAL_SELECTOR).last();
 
 // A row's user link inside the modal. Whatnot uses hashed class names, so rows are
 // identified by the /user/<name> anchor they contain rather than by class.
@@ -149,7 +157,7 @@ export const shareButton = (scope) =>
     .first();
 
 // The share sheet. Distinguished from the followers modal by containing a search field.
-export const shareDialog = (page) => page.locator('[role="dialog"]').last();
+export const shareDialog = (page) => page.locator(MODAL_SELECTOR).last();
 
 // Both fields are bare <input type="text"> with no placeholder or label, so they can only be
 // told apart by position: search is first, and the message box only exists at all once a

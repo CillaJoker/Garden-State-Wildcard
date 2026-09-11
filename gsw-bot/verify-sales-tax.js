@@ -40,7 +40,11 @@ const FIELD_ALIASES = {
   credit:    ['Trade-in credit excluded ($)'],
   base:      ['Taxable receipts ($)'],
   expected:  ['Expected tax ($)'],
-  collected: ['Tax collected ($)'],
+  // Col J was relabelled "Tax on sales (per-row sum)" when Sales col J (tax collected) was
+  // deleted — nothing records tax *collected* any more, so the column's honest job is proving the
+  // per-row math sums to the period math. The old name stays in the list because the pre-monthly
+  // SNAPSHOTS still carry it, and those are the oracle.
+  collected: ['Tax on sales (per-row sum)', 'Tax collected ($)'],
 };
 
 // Locate the header row, then map each logical field to its column index in that grid.
@@ -163,8 +167,11 @@ function locateRows(grid) {
   const drift = [];
   nLoc.quarters.forEach((r, q) => {
     if (wasClosed(num(r, 2))) {
+      // Gross and barter are the same quantity before and after every rebuild, so they are
+      // binding. Col J is NOT: it used to sum Sales!J ("tax collected", $0 on every row, which
+      // is why that column was deleted) and now sums the DERIVED per-row tax. Holding the new
+      // meaning to the old column's zeros would fail forever — reported below instead.
       check(`Q${q + 1} gross sales`, num(r, C.gross), before.quarters[q].gross);
-      check(`Q${q + 1} tax collected`, num(r, C.collected), before.quarters[q].collected);
       check(`Q${q + 1} barter FMV`, num(r, C.barter), before.quarters[q].barter);
     } else {
       const dg = round2(num(r, C.gross)) - round2(before.quarters[q].gross);
@@ -179,6 +186,13 @@ function locateRows(grid) {
   // Expected tax is DELIBERATELY no longer comparable to the oracle: the 2026-08-23 price-basis
   // change and the 2026-08-25 trade-in credit both move it on purpose. Report the delta rather
   // than failing on it — a permanent red X here would train the eye to ignore a real one.
+  console.log('\n──────── COL J — meaning changed, not comparable to the oracle ────────');
+  nLoc.quarters.forEach((r, q) => {
+    console.log(`  Q${q + 1}: now ${money(num(r, C.collected))} (per-row derived tax)  ` +
+      `vs oracle ${money(before.quarters[q].collected)} (tax actually collected — always $0)`);
+  });
+  console.log('  Informational: Sales col J was deleted, so nothing records tax COLLECTED any more.');
+
   console.log('\n──────── EXPECTED TAX — intentionally differs from the oracle ────────');
   const nowTax = num(nLoc.total, C.expected);
   const oldTax = before.total.expected;

@@ -62,7 +62,7 @@ One trade `T-NNNN` = **a Sales row per outgoing card** + **one Purchases row** f
 received + **an Inventory row per incoming card**:
 
 ```
-Sales     platform=Trade  item=I-0101  price(G)=FMV  tradeId(R)=T-0001
+Sales     platform=Trade  item=I-0101  price(G)=FMV  tradeId(T)=T-0001
 Purchases channel=Trade   cardCost(H)=Σ incoming FMV  tradeId(R)=T-0001  tradeCash(S)=±cash
           └ T: =IF($R…="","",IF(ABS($H…-(SUMIF(Sales!$R:$R,$R…,Sales!$G:$G)+N($S…)))<0.01,"OK",…))
 Inventory purchase=<new P-ID>  G = the standard live allocated-cost formula
@@ -84,8 +84,8 @@ is already inside the realized amount on the Sales rows — it is *not* separate
    `schema.js`). Barter has no processor and no 1099-K; the watch SUMIFs by platform name, so
    omitting it excludes trades automatically.
 
-`Trade` is *not* a `saleStatus` (col Q) — a trade is a **Completed** sale. Q is completion state;
-trade-ness is platform + col R.
+`Trade` is *not* a `saleStatus` (col S) — a trade is a **Completed** sale. S is completion state;
+trade-ness is platform + col T.
 
 **Recording a trade.** Either the Telegram bot (`intent="trade"`, e.g. *"traded I-0101 ($120) and
 I-0102 ($80) plus $50 cash for a Prizm worth $250"*) or the CLI (`record-trade.js`). Both go
@@ -137,17 +137,34 @@ rejected it. Add new enum values to `VALIDATION` only.
 
 ### Trades and NJ sales tax
 
-The **`Sales Tax (Direct)`** tab sweeps every sale where **`Who remitted` (Sales col K) = "Me"**:
+⚠️ **Column letters in this section predate two rebuilds.** The tab grew to **eleven** columns on
+2026-08-25 (trade-in credit), and Sales lost col J on 2026-08-29. Current layout, which is what the
+live tab holds:
+
+| | | |
+|---|---|---|
+| `A` Period | `B` Period start | `C` Period end |
+| `D` Gross direct sales ($) | `E` of which barter/trade ($) | `F` of which cash boot received ($) |
+| `G` Trade-in credit excluded ($) | `H` Taxable receipts ($) | `I` Expected tax ($) |
+| `J` Tax on sales (per-row sum) | `K` Variance (per-row vs period) | |
+
+Toggles: `B3` tax year · `B4` NJ rate · `B5` prior-year collected · `B6` price basis · `F6` trade-in
+credit. Where the prose below says "col E is the tax" or "col H is barter", read `I` and `E`.
+
+The tab sweeps every sale where **`Who remitted` (Sales col J, was K) = "Me"**:
 
 ```
-D<r> = SUMIFS(Sales!$G:$G, Sales!$K:$K,"Me", Sales!$B:$B,">="&B<r>, …"<="&C<r>)
+D<r> = SUMIFS(Sales!$G:$G, Sales!$J:$J,"Me", Sales!$B:$B,">="&B<r>, …"<="&C<r>)
 ```
 
 The formula is parameterised by each row's own `B`/`C` period bounds, which is why the tab could
 be re-cut from quarters to months without touching its substance — see below.
 
-`trade.js` writes **`K: 'Me'`** on trade sales rows — no platform remits on a barter deal — so
-trades reach the tab. What they contribute to the **taxable base** is where it gets interesting.
+`trade.js` writes **`J: 'Me'`** on trade sales rows — no platform remits on a barter deal — so
+trades reach the tab at FMV. Owner's decision (2026-08-01): correct for trades with a **private
+individual**, which NJ taxes at fair market value even though no cash changes hands. What they
+then contribute to the **taxable base** is where it gets interesting — see the trade-in credit
+below.
 
 **Barter is unambiguously a taxable sale.** N.J.S.A. 54:32B-2 defines "sale" to include
 "exchange or barter", and measures it by consideration "valued in money, **whether received in
@@ -239,7 +256,8 @@ says "col E" for the tax read **`I`**, and where it says "col H" for barter read
 substance is unchanged — only the letters moved.
 
 Col E followed `D × rate` from the start, i.e. it assumed col G is a **pre-tax** price and tax was
-charged on top. But **Sales col J ("Sales tax collected") is $0 on every "Me" row** — nothing was
+charged on top. But the old **Sales col J ("Sales tax collected") was $0 on every "Me" row** —
+nothing was
 ever actually added at the register. If a card goes out the door at $20 and $20 is all that comes
 back, that $20 already *includes* the tax, and the right math is a gross-up.
 
@@ -293,13 +311,129 @@ every row/column **by header text** rather than by index — which is what let t
 column shuffle land without rewriting the checks. Quarters still **open** at capture time are
 reported as informational drift, not failures; only closed quarters are binding.
 
+## Sales N/O/P — the per-sale price/tax/margin breakdown
+
+Added 2026-08-29, along with the **deletion of the old col J ("Sales tax collected ($)")**. J was
+blank on all 399 rows: nothing is ever added at the register, which is the whole premise of the
+`B6` toggle. A column that records nothing while implying tax is tracked per sale is worse than no
+column, so the tax is now **derived** instead.
+
+| | | |
+|---|---|---|
+| `N` Sale price ex-tax ($) | `O` Sales tax on sale ($) | `P` Net margin (%) |
+
+Everything shifted: `K`–`R` moved **left** one when J went, then `Q`–`T` moved **right** three.
+Sales now runs `A:T`. The current map is always `COLUMN_MAPS.sales` in `schema.js` — read it there,
+not from memory.
+
+**All three read the toggles rather than hardcoding anything** — rate `B4`, price basis `B6`,
+trade-in credit `F6`, all on `Sales Tax (Direct)`. That is the point: the workbook keeps **one**
+answer to "is the tax inside the price?", and the Sales tab can never drift from the tab that
+files the return. The generators live in `schema.js` (`salesTaxFormula`, `salesExTaxFormula`,
+`salesMarginFormula`) so nothing re-implements them.
+
+**Col O mirrors the tab's four-way `B6 × F6` logic one row at a time:**
+
+- **not `Me`** → `0`. The platform charged and remitted its own tax; none of it is ours.
+- **`Me`, cash** → the whole receipt is the base.
+- **`Me`, `Trade`, credit `Excluded`** → only the **cash boot** is taxable, so the row takes its
+  pro-rata share of the trade's boot (`Purchases!S`, negative side). This is how the tab's col G/H
+  reach the same figure for the period.
+- **`Me`, `Trade`, credit `Not excluded`** → the FMV is the base, **taxed at the rate ON TOP under
+  both price bases**. ⚠️ This is the barter carve-out: a trade's FMV *is* the taxable receipt, so
+  there is no price with tax buried inside it to gross down. Getting this wrong is not academic —
+  the first cut grossed barter down and came out **$13.69** under the tab, exactly
+  `barter × rate²/(1+rate)`. `verify-sales-columns.js` catches it.
+
+**Col N subtracts only the tax that is actually INSIDE the price** — never under "Added on top",
+and never on on-top barter. So `(G − N)` is the **embedded tax by construction**, and `N + O = G`
+holds only where the tax really is inside.
+
+**Col P is margin AFTER platform fees**, per the owner's call: an eBay sale should read lower than
+a Show sale on the same card. Denominator is net payout `K` less the **embedded** tax `(G − N)` —
+not col O, which would double-charge on-top barter. Blank COGS stays blank rather than reading
+100%; a non-positive denominator blanks too.
+
+⚠️ **Two artifacts to expect, neither introduced by this change:**
+
+- The **52 rows with hand-typed `COGS = 0`** (the legacy `S-0001…S-0047` no-cost-basis sales) read
+  **100% margin**. Their cost is *unknown*, not zero — the same distortion col M already carried.
+- **`Unwound` sales are not excluded from the tax base.** The period formulas sweep by date and
+  `Who remitted`, so a reversed deal still contributes. Immaterial today (the one unwound sale is
+  $0) but wrong in principle.
+
+**Repair/refill:** `restructure-sales-columns.js --confirm` is idempotent — if the structure is
+already migrated it skips the delete/insert and just rewrites `N2:P485` plus the two off-tab
+formulas. That is also how you push a formula change out after editing `schema.js`.
+
+**Depth, not append:** the formulas are filled to **row 485**, matching K/L/M. Nothing in
+`bot.js`/`trade.js` writes K–P on a newly appended row — they work only because they are
+pre-filled, and there are ~78 rows of headroom left. **Follow-on, not yet done:** add a
+post-append formula write for K–P in `writeSale` and `commitTrade`, the way `trade.js` already
+does for Purchases T and Inventory G.
+
+### ⚠️ After a column change, RESTART THE BOT
+
+`bot.js` is a long-running process. It holds `schema.js` in memory, so a column change on disk does
+**nothing** until it restarts — and a bot writing the old column map into the new sheet silently
+corrupts rows.
+
+This happened immediately, on **S-0408**. The stale process used the old runs:
+
+- `A:K` → "Who remitted" landed one column right, on **K**, **destroying the net-payout formula**
+  (the row read `Net payout $500 / Gross profit $675` — the give-away is a *text* value sitting in a
+  formula column, and `J` blank).
+- `O:R` → wrote blanks over **O** and **P**, erasing the tax and margin formulas.
+
+Nothing was lost that could not be rebuilt, but note **col K had no generator anywhere in the
+repo** — it lived only in the sheet. It is now `netPayoutFormula` in `schema.js`.
+
+**Detection and repair are both automatic now:**
+
+- `verify-sales-columns.js` asserts K/N/O/P are live formulas on **every** data row. L is exempt —
+  52 legacy rows hold a deliberately hand-typed `0`.
+- `restructure-sales-columns.js` recognises the signature (J blank + a `whoRemitted` value in K),
+  moves the value back to J, and restores K/N/O/P. It prints the rows it is fixing in the dry run.
+- It also refills **L/M when they are BLANK** on a row that has an Item ID. **Blank is not the same
+  as hand-typed:** the 52 legacy rows hold a deliberate `0` and are left strictly alone, but an
+  empty cell is damage. `add-sale-status.js` cannot do this — it treats any non-formula as
+  hand-typed and skips it, which is right for a `0` and wrong for a blank.
+
+**All six Sales formulas now have generators in `schema.js`** — `netPayoutFormula`,
+`salesCogsFormula`, `salesProfitFormula`, `salesTaxFormula`, `salesExTaxFormula`,
+`salesMarginFormula`. `add-sale-status.js` imports the COGS/profit pair rather than redeclaring it,
+so the installer and the repair tool cannot drift into generating different strings.
+
+### Two off-Sales formulas read the deleted column and were repaired
+
+Sheets rewrites its **own** references on a shift, but a **deleted** column becomes `#REF!`:
+
+- `Dashboard!B17` "NJ sales tax to remit (direct)" — was `SUMIF(Sales!K:K,"Me",Sales!J:J)`, which
+  reported **$0.00** against the tax tab's real figure. Now `SUMIF(Sales!$J:$J,"Me",Sales!$O:$O)`.
+- `Sales Tax (Direct)` col J — was "Tax collected ($)" summing `Sales!J`. With no record of tax
+  *collected* anywhere, the honest job for that column is proving the per-row math sums to the
+  period math, so it is relabelled **"Tax on sales (per-row sum)"** with `K` as
+  **"Variance (per-row vs period)"**.
+
+### `restructure-sales-tax.js` and `verify-sales-tax.js` are current again
+
+⚠️ **This section used to say both scripts were stale — that was fixed in the 2026-09-11 merge.**
+`restructure-sales-tax.js` now emits the full **twelve-column** layout (through `L` ST-51) with
+the trade-in credit and both toggles, and carries `priceBasis` / `tradeInCredit` across a rebuild
+instead of reverting them. `verify-sales-tax.js` locates every row and column **by header text**,
+so the 2026-08-25 shuffle no longer mislabels its output.
+
+The one thing that has *not* changed: **always snapshot before a rebuild** (`snapshot-tab.js`),
+because the script still clears `A1:Z200` and anything it does not re-emit is destroyed.
+
 ## A sale's money is stated once and split across its rows
 
 The owner states one figure for the whole deal — *"sold I-0004 and I-0005 for $200"* — but Sales
 col G is **per row**. `writeSale` used to stamp the full `sale_price` on every row, so a 2-item
-sale booked **$400** of revenue. Same for shipping, fees, and tax collected.
+sale booked **$400** of revenue. Same for shipping and fees. (It split tax collected too, until
+that column was deleted on 2026-08-29 — see the N/O/P section above.)
 
-`allocateSale()` (`bot.js`) apportions all four, **weighted by cost basis** so every row carries
+`allocateSale()` (`bot.js`) apportions all three, **weighted by cost basis** so every row carries
 the same margin — the same rule a trade's outgoing side uses. It calls the same `splitExact()`
 from `trade.js` (now exported), so the parts sum to the stated figure to the cent.
 
@@ -425,26 +559,26 @@ It used to compare against a hardcoded `['Whatnot','eBay','Direct']`, which went
 moment `add-platforms.js` added CollX and Show, and produced a permanent false "not on the
 watch" warning for platforms that *were* on it. Don't reintroduce a literal list.
 
-## Unwound deals — Sales col Q "Sale status"
+## Unwound deals — Sales col S "Sale status"
 
-Sales has a **`Q` Sale status** column: `Completed` / `Unwound` / `Refunded`, blank == Completed.
+Sales has a **`S` Sale status** column: `Completed` / `Unwound` / `Refunded`, blank == Completed.
 
 - **`Unwound`** — the deal was reversed and the **item came back into inventory** (e.g. buyer
   backed out). COGS must be $0: the cost basis stays with the still-owned inventory row.
 - **`Refunded`** — money went back but the item did **not** return, so COGS still applies.
 
-COGS (col M) is status-aware, so an unwound row zeroes itself instead of being hand-typed:
+COGS (col L) is status-aware, so an unwound row zeroes itself instead of being hand-typed:
 
 ```
-=IF($Q<r>="Unwound",0,IF(E<r>="","",IFERROR(VLOOKUP(E<r>,Inventory!$A:$G,7,FALSE()),"")))
+=IF($S<r>="Unwound",0,IF(E<r>="","",IFERROR(VLOOKUP(E<r>,Inventory!$A:$G,7,FALSE()),"")))
 ```
 
 This matters because the old workaround was typing `0` into M and N directly, which
-**destroyed those rows' formulas** and buried the reason in the Card text. Mark col Q instead
-— never hand-type COGS. `audit-sales.js` reads Q and skips `Unwound` rows in the "item still
+**destroyed those rows' formulas** and buried the reason in the Card text. Mark col S instead
+— never hand-type COGS. `audit-sales.js` reads S and skips `Unwound` rows in the "item still
 In stock" and "zero sale price" checks, so they stop showing up as false positives forever.
 
-⚠️ **47 early sales (S-0001…S-0047) still have hand-typed `M=0`** — legacy no-cost-basis rows.
+⚠️ **47 early sales (S-0001…S-0047) still have hand-typed `L=0`** (52 rows in all) — legacy no-cost-basis rows.
 `add-sale-status.js` deliberately leaves any hand-typed COGS alone, since overwriting it with
 a live formula would silently change the P&L. Convert them only deliberately.
 
@@ -457,7 +591,7 @@ a live formula would silently change the P&L. Convert them only deliberately.
 | `fix-bulk-remainder.js <bulk-ItemID> [--confirm]` | Apply the item-count remainder formula + cost formula to any bulk-remainder row | with `--confirm` |
 | `fill-alloc.js <ItemID…> [--confirm]` | Drop the standard allocated-cost formula into a row's G (skips rows that already have it) | with `--confirm` |
 | `add-platforms.js [--confirm]` | Rebuild the Dashboard 1099-K platform watch (all platforms) | with `--confirm` |
-| `add-sale-status.js [Sale-ID…] [--confirm]` | Install/repair the Sales col Q status column + status-aware COGS; marks the given sales `Unwound` and restores their M/N formulas | with `--confirm` |
+| `add-sale-status.js [Sale-ID…] [--confirm]` | Install/repair the Sales col S status column + status-aware COGS; marks the given sales `Unwound` and restores their L/M formulas | with `--confirm` |
 | `add-trade-columns.js [--confirm]` | One-time: install Sales R / Purchases R,S,T trade columns + `Trade` dropdown options | with `--confirm` |
 | `add-payment-method.js [--set P-####=Method …] [--confirm]` | Install Purchases col U (Payment method) header + dropdown; `--set` backfills named purchases (never guesses, never overwrites) | with `--confirm` |
 | `record-trade.js <trade.json> [--confirm]` | CLI over `trade.js`: record one trade end to end — Sales rows out, Purchases row in, Inventory rows, live formulas | with `--confirm` |
@@ -465,6 +599,8 @@ a live formula would silently change the P&L. Convert them only deliberately.
 | `snapshot-tab.js "<tab>" [--confirm]` | Freeze a tab before restructuring it: in-sheet copy with formulas replaced by their values, plus `snapshots/<tab>-<date>.json` of every formula and value | with `--confirm` |
 | `restructure-sales-tax.js [--confirm]` | Rebuild Sales Tax (Direct) as 12 monthly rows + quarterly ST-50 subtotals + ST-51 flag; refuses to run without a snapshot | with `--confirm` |
 | `add-tax-toggle.js [--confirm]` | Install the `B6` price-basis toggle (tax on top vs. included) + the three-way tax formula | with `--confirm` |
+| `restructure-sales-columns.js [--confirm]` | Delete Sales col J + install the N/O/P breakdown; idempotent, so it doubles as the formula-refill/repair tool. Refuses without a snapshot, and refuses to delete a non-blank col J | with `--confirm` |
+| `verify-sales-columns.js` | Structural + arithmetic checks on N/O/P; exercises all four `B6 × F6` combinations, proves the column sums to the ST-50 figure in each, restores the toggles | flips `B6`/`F6`, restores |
 | `verify-sales-tax.js` | Structural checks that need no oracle (months→quarters→year, periods tile the year), the trade-in credit arithmetic, and month boundaries; replays the quarterly migration check against the pre-monthly snapshot for closed quarters only | read-only |
 | `verify-tax-toggle.js` | Exercise BOTH price bases, prove barter is unaffected and "added on top" still matches the snapshot | flips `B6`, restores it |
 

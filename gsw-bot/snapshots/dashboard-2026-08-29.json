@@ -1,0 +1,216 @@
+{
+  "tab": "Dashboard",
+  "capturedAt": "2026-08-29T16:58:49.020Z",
+  "spreadsheetId": "170DFyYMt0yQTZ4eQE4GnWFmVPvVp7gm5t3xAU2ys6zA",
+  "sheetId": 576402140,
+  "gridProperties": {
+    "rowCount": 1000,
+    "columnCount": 26,
+    "hideGridlines": true,
+    "rowGroupControlAfter": true,
+    "columnGroupControlAfter": true
+  },
+  "range": "'Dashboard'!A1:Z1000",
+  "formulas": [
+    [
+      "Garden State Wildcard — Year Dashboard"
+    ],
+    [],
+    [
+      "Income (P&L)",
+      "",
+      "",
+      "1099-K watch (per platform)"
+    ],
+    [
+      "Gross receipts (card sales)",
+      "=SUM(Sales!G:G)",
+      "",
+      "Platform",
+      "Payouts ($)",
+      "Txns",
+      "Status"
+    ],
+    [
+      "Shipping collected",
+      "=SUM(Sales!H:H)",
+      "",
+      "Whatnot",
+      "=SUMIF(Sales!$C:$C,D5,Sales!$L:$L)",
+      "=COUNTIF(Sales!$C:$C,D5)",
+      "=IF(OR(E5>=20000,F5>=200),\"Likely 1099-K\",\"Below threshold\")"
+    ],
+    [
+      "Platform fees",
+      "=SUM(Sales!I:I)",
+      "",
+      "eBay",
+      "=SUMIF(Sales!$C:$C,D6,Sales!$L:$L)",
+      "=COUNTIF(Sales!$C:$C,D6)",
+      "=IF(OR(E6>=20000,F6>=200),\"Likely 1099-K\",\"Below threshold\")"
+    ],
+    [
+      "COGS (cards sold)",
+      "=SUM(Sales!M:M)",
+      "",
+      "Direct",
+      "=SUMIF(Sales!$C:$C,D7,Sales!$L:$L)",
+      "=COUNTIF(Sales!$C:$C,D7)",
+      "=IF(OR(E7>=20000,F7>=200),\"Likely 1099-K\",\"Below threshold\")"
+    ],
+    [
+      "Operating expenses",
+      "=SUM(Expenses!E:E)",
+      "",
+      "CollX",
+      "=SUMIF(Sales!$C:$C,D8,Sales!$L:$L)",
+      "=COUNTIF(Sales!$C:$C,D8)",
+      "=IF(OR(E8>=20000,F8>=200),\"Likely 1099-K\",\"Below threshold\")"
+    ],
+    [
+      "Gross profit (receipts − COGS)",
+      "=B4-B7",
+      "",
+      "Show",
+      "=SUMIF(Sales!$C:$C,D9,Sales!$L:$L)",
+      "=COUNTIF(Sales!$C:$C,D9)",
+      "=IF(OR(E9>=20000,F9>=200),\"Likely 1099-K\",\"Below threshold\")"
+    ],
+    [
+      "Est. net profit, pre-tax (receipts − COGS − fees − expenses)",
+      "=B4-B7-B6-B8"
+    ],
+    [
+      "Barter/trade income (already in gross receipts above)",
+      "=SUMIF(Sales!C:C,\"Trade\",Sales!G:G)",
+      "",
+      "Threshold (2025+): $20,000 AND 200 txns per platform."
+    ],
+    [
+      "",
+      "",
+      "",
+      "All income is reportable regardless."
+    ],
+    [
+      "Inventory & sales tax"
+    ],
+    [
+      "Inventory on hand (cost, unsold)",
+      "=SUMIFS(Inventory!G:G,Inventory!H:H,\"<>Sold\")"
+    ],
+    [
+      "Cards in stock / listed",
+      "=COUNTIFS(Inventory!H:H,\"<>Sold\",Inventory!A:A,\"<>\")-1"
+    ],
+    [
+      "Cards sold",
+      "=COUNTIF(Inventory!H:H,\"Sold\")"
+    ],
+    [
+      "NJ sales tax to remit (direct)",
+      "=SUMIF(Sales!K:K,\"Me\",Sales!J:J)"
+    ]
+  ],
+  "values": [
+    [
+      "Garden State Wildcard — Year Dashboard"
+    ],
+    [],
+    [
+      "Income (P&L)",
+      "",
+      "",
+      "1099-K watch (per platform)"
+    ],
+    [
+      "Gross receipts (card sales)",
+      15602.059999999987,
+      "",
+      "Platform",
+      "Payouts ($)",
+      "Txns",
+      "Status"
+    ],
+    [
+      "Shipping collected",
+      145.24999999999986,
+      "",
+      "Whatnot",
+      320.53,
+      32,
+      "Below threshold"
+    ],
+    [
+      "Platform fees",
+      375.62000000000006,
+      "",
+      "eBay",
+      873.129999999999,
+      201,
+      "Likely 1099-K"
+    ],
+    [
+      "COGS (cards sold)",
+      11278.829999999989,
+      "",
+      "Direct",
+      0,
+      0,
+      "Below threshold"
+    ],
+    [
+      "Operating expenses",
+      934.1000000000001,
+      "",
+      "CollX",
+      325.17,
+      18,
+      "Below threshold"
+    ],
+    [
+      "Gross profit (receipts − COGS)",
+      4323.229999999998,
+      "",
+      "Show",
+      9634,
+      133,
+      "Below threshold"
+    ],
+    [
+      "Est. net profit, pre-tax (receipts − COGS − fees − expenses)",
+      3013.5099999999975
+    ],
+    [
+      "Barter/trade income (already in gross receipts above)",
+      3325,
+      "",
+      "Threshold (2025+): $20,000 AND 200 txns per platform."
+    ],
+    [
+      "",
+      "",
+      "",
+      "All income is reportable regardless."
+    ],
+    [
+      "Inventory & sales tax"
+    ],
+    [
+      "Inventory on hand (cost, unsold)",
+      13566.749999999996
+    ],
+    [
+      "Cards in stock / listed",
+      213
+    ],
+    [
+      "Cards sold",
+      407
+    ],
+    [
+      "NJ sales tax to remit (direct)",
+      0
+    ]
+  ]
+}

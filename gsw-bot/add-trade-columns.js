@@ -33,14 +33,14 @@ const S = TAB_NAMES.sales;
   const get = (range) => sheets.spreadsheets.values.get({
     spreadsheetId: sid, range, valueRenderOption: 'FORMULA',
   }).then((x) => x.data.values || []);
-  const [salesRows, purchRows] = await Promise.all([get(`'${S}'!A:R`), get(`'${P}'!A:T`)]);
+  const [salesRows, purchRows] = await Promise.all([get(`'${S}'!A:T`), get(`'${P}'!A:T`)]);
 
   const data = [];
   const plan = { headers: [], recon: [] };
 
   const headerAt = (rows, colIdx) => String((rows[0] || [])[colIdx] || '').trim();
   const want = [
-    [S, 'R1', 'Trade ID', salesRows, 17],
+    [S, 'T1', 'Trade ID', salesRows, 19],
     [P, 'R1', 'Trade ID', purchRows, 17],
     [P, 'S1', 'Trade cash ($)', purchRows, 18],
     [P, 'T1', 'Trade reconciliation', purchRows, 19],

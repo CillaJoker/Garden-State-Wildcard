@@ -12,7 +12,7 @@ const { TAB_NAMES, DASHBOARD_PLATFORM_RANGE, PLATFORMS_EXEMPT_FROM_1099K } = req
   const sid = process.env.SPREADSHEET_ID;
   const get = (r) => sheets.spreadsheets.values.get({ spreadsheetId: sid, range: r, valueRenderOption: 'UNFORMATTED_VALUE' }).then((x) => x.data.values || []);
   const [sales, inv, dash] = await Promise.all([
-    get(`${TAB_NAMES.sales}!A:Q`),
+    get(`${TAB_NAMES.sales}!A:T`),
     get(`${TAB_NAMES.inventory}!A:I`),
     get(`${TAB_NAMES.dashboard}!${DASHBOARD_PLATFORM_RANGE}`).catch(() => null),
   ]);
@@ -41,7 +41,7 @@ const { TAB_NAMES, DASHBOARD_PLATFORM_RANGE, PLATFORMS_EXEMPT_FROM_1099K } = req
   const platformTally = {};
   for (let i = 1; i < sales.length; i++) {
     const r = sales[i]; if (!r || !r[0]) continue;
-    const s = { row: i + 1, id: String(r[0]), platform: String(r[2] || ''), items: itemsIn(r[4]), rawItems: String(r[4] || ''), price: num(r[6]), payout: num(r[11]), cogs: num(r[12]), status: String(r[16] || '').trim() };
+    const s = { row: i + 1, id: String(r[0]), platform: String(r[2] || ''), items: itemsIn(r[4]), rawItems: String(r[4] || ''), price: num(r[6]), payout: num(r[10]), cogs: num(r[11]), status: String(r[18] || '').trim() };
     // An unwound deal legitimately has $0 price and an item back in stock — not an error.
     s.unwound = s.status === 'Unwound';
     saleRows.push(s);

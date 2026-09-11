@@ -37,7 +37,7 @@ const lastWrite = new Map();
 
 // Fields the model should never ask about — always optional or have hardcoded defaults
 const OPTIONAL_FIELDS = new Set([
-  'order_no', 'shipping_charged', 'platform_fees', 'sales_tax_collected',
+  'order_no', 'shipping_charged', 'platform_fees',
   'buyer_state', 'shipping_in', 'sales_tax_paid', 'receipt_link', 'notes',
   'who_remitted', 'seller', 'grade_cert', 'value_weight', 'sale_id',
   'num_cards', 'lot_or_single', 'allocation_method', 'st3_used',
@@ -173,7 +173,7 @@ function summarizeSale(entry, sIds) {
   return [
     `Sale(s) on ${s.platform}`,
     `  total $${fmt(s.sale_price)} + $${fmt(s.shipping_charged || 0)} ship, fees $${fmt(s.platform_fees || 0)}`,
-    `  Tax collected: $${fmt(s.sales_tax_collected)}, remitted by ${whoRemitted}`,
+    `  Remitted by ${whoRemitted}`,
     itemBlock,
     ...(split && itemCount > 1
       ? [`  split across ${itemCount} items ${split.method === 'basis' ? 'by cost basis' : 'evenly'}`]
@@ -307,12 +307,11 @@ function allocateSale(s, weights) {
   const price = share(s.sale_price);
   const ship = share(s.shipping_charged != null ? s.shipping_charged : 0);
   const fees = share(s.platform_fees != null ? s.platform_fees : 0);
-  const tax = share(s.sales_tax_collected != null ? s.sales_tax_collected : null);
 
   return {
     method,
     rows: Array.from({ length: n }, (_, i) => ({
-      price: price[i], ship: ship[i], fees: fees[i], tax: tax[i],
+      price: price[i], ship: ship[i], fees: fees[i],
     })),
   };
 }

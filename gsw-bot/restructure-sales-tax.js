@@ -1,4 +1,18 @@
 'use strict';
+// ⚠️⚠️ STALE — DO NOT RUN WITHOUT REWRITING IT FIRST. ⚠️⚠️
+//
+// This script still builds the ORIGINAL NINE-column layout (D taxable / E =D*B4 / F collected /
+// G variance / H barter / I ST-51). The live tab has since grown to ELEVEN columns and its
+// col E is the three-way price-basis formula, not D*rate:
+//
+//     D Gross direct sales   E of which barter/trade   F of which cash boot received
+//     G Trade-in credit excluded   H Taxable receipts   I Expected tax
+//     J Tax on sales (per-row sum)   K Variance
+//
+// plus the B6 "Price basis" and F6 "Trade-in credit" toggles. Running this as-is would silently
+// destroy the trade-in-credit work (see CLAUDE.md) and revert tax to a flat D x rate. Its Sales!
+// column references were kept current with the 2026-08-29 Sales restructure so it does not rot
+// further, but the LAYOUT is what is out of date, and that is not something a re-run can fix.
 // Rebuilds the Sales Tax (Direct) tab as 12 monthly rows with quarterly subtotals.
 //
 //   node restructure-sales-tax.js            # dry run — prints every cell it would write
@@ -132,7 +146,8 @@ const st51 = (r) =>
 
   ['Period', 'Period start', 'Period end', 'Gross direct sales ($)', 'of which barter/trade ($)',
     'of which cash boot received ($)', 'Trade-in credit excluded ($)', 'Taxable receipts ($)',
-    'Expected tax ($)', 'Tax collected ($)', 'Variance ($)', 'ST-51 required?']
+    'Expected tax ($)', 'Tax on sales (per-row sum)', 'Variance (per-row vs period)',
+    'ST-51 required?']
     .forEach((h, i) => put(7, i, h));
 
   MONTHS.forEach((name, i) => {

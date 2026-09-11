@@ -83,7 +83,6 @@ const RECORD_ENTRY_TOOL = {
           sale_price:           { type: 'number' },
           shipping_charged:     { type: 'number' },
           platform_fees:        { type: 'number' },
-          sales_tax_collected:  { type: ['number', 'null'] },
           who_remitted:         { type: 'string', enum: VALIDATION.whoRemitted },
           buyer_state:          { type: 'string' },
           notes:                { type: 'string' },
@@ -172,7 +171,6 @@ TODAY'S DATE: ${today}
 - st3_used: Y; sales_tax_paid: 0 (resale inventory default)
 - who_remitted: Whatnot/eBay/CollX → Platform; Direct/Show → Me
 - shipping_in, shipping_charged, platform_fees: 0 if not mentioned
-- sales_tax_collected: null if not mentioned (show NJ suggestion in assumptions if who_remitted=Me)
 
 ## Validation allowed values (map free text to nearest)
 - channel: ${VALIDATION.purchasesChannel.join(', ')}
@@ -255,7 +253,7 @@ TODAY'S DATE: ${today}
 ## missing[] rules
 - Only add a field to missing[] if it is required and not inferable
 - Required: expense.amount; sale.item_ids (if no I-#### given AND no purchase_ids AND no card_descriptions AND no new_items); purchase.card_cost
-- NEVER add these to missing[] — they are always optional: sale.order_no, sale.shipping_charged, sale.platform_fees, sale.sales_tax_collected, sale.buyer_state, sale.notes, purchase.shipping_in, purchase.sales_tax_paid, purchase.receipt_link, purchase.notes, expense.receipt_link, expense.notes, purchase.payment_method, trade.counterparty, trade.cash, trade.notes
+- NEVER add these to missing[] — they are always optional: sale.order_no, sale.shipping_charged, sale.platform_fees, sale.buyer_state, sale.notes, purchase.shipping_in, purchase.sales_tax_paid, purchase.receipt_link, purchase.notes, expense.receipt_link, expense.notes, purchase.payment_method, trade.counterparty, trade.cash, trade.notes
 - grade_cert is ALWAYS optional, everywhere it appears — purchase.items[], sale.new_items[], trade.in[], inventory. Most cards are raw and ungraded. Never put grade, cert, or "grade/cert" in missing[] under any phrasing.
 - Do NOT add optional fields or fields with valid defaults
 - If you find yourself writing the word "optional" into a missing[] entry, that is proof the field does not belong there — leave it out entirely

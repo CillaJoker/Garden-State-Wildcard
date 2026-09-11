@@ -7,7 +7,7 @@ const { google } = require('googleapis');
 
 const CONFIRM = process.argv.includes('--confirm');
 const statusF = (r) => `=IF(OR(E${r}>=20000,F${r}>=200),"Likely 1099-K","Below threshold")`;
-const platRow = (name, r) => [name, `=SUMIF(Sales!$C:$C,D${r},Sales!$L:$L)`, `=COUNTIF(Sales!$C:$C,D${r})`, statusF(r)];
+const platRow = (name, r) => [name, `=SUMIF(Sales!$C:$C,D${r},Sales!$K:$K)`, `=COUNTIF(Sales!$C:$C,D${r})`, statusF(r)];
 
 // New D8:G12 block.
 const block = [

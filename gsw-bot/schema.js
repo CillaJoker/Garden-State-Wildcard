@@ -73,6 +73,9 @@ const COLUMN_MAPS = {
     { col: 8, letter: 'H', field: 'Status',              type: 'INPUT' },
     { col: 9, letter: 'I', field: 'Sale ID',             type: 'INPUT' },
   ],
+  // 2026-08-29: col J "Sales tax collected ($)" was DELETED — it was blank on all 399 rows
+  // because nothing is ever added at the register. Tax per sale is now DERIVED in col O from the
+  // toggles on the Sales Tax (Direct) tab. N/O/P were inserted after Gross profit at the same time.
   sales: [
     { col: 1,  letter: 'A', field: 'Sale ID',                  type: 'INPUT' },
     { col: 2,  letter: 'B', field: 'Date',                     type: 'INPUT' },
@@ -88,17 +91,17 @@ const COLUMN_MAPS = {
     { col: 7,  letter: 'G', field: 'Sale price ($)',           type: 'INPUT' },
     { col: 8,  letter: 'H', field: 'Shipping charged ($)',     type: 'INPUT' },
     { col: 9,  letter: 'I', field: 'Platform fees ($)',        type: 'INPUT' },
-    { col: 10, letter: 'J', field: 'Who remitted',            type: 'INPUT' },
-    { col: 11, letter: 'K', field: 'Net payout ($)',          type: 'FORMULA' },
-    { col: 12, letter: 'L', field: 'COGS ($)',                type: 'FORMULA' },
-    { col: 13, letter: 'M', field: 'Gross profit ($)',        type: 'FORMULA' },
-    { col: 14, letter: 'N', field: 'Sale price ex-tax ($)',   type: 'FORMULA' },
-    { col: 15, letter: 'O', field: 'Sales tax on sale ($)',   type: 'FORMULA' },
-    { col: 16, letter: 'P', field: 'Net margin (%)',          type: 'FORMULA' },
-    { col: 17, letter: 'Q', field: 'Buyer state',             type: 'INPUT' },
-    { col: 18, letter: 'R', field: 'Notes',                   type: 'INPUT' },
-    { col: 19, letter: 'S', field: 'Sale status',             type: 'INPUT' },
-    { col: 20, letter: 'T', field: 'Trade ID',                type: 'INPUT' },
+    { col: 10, letter: 'J', field: 'Who remitted',             type: 'INPUT' },
+    { col: 11, letter: 'K', field: 'Net payout ($)',           type: 'FORMULA' },
+    { col: 12, letter: 'L', field: 'COGS ($)',                 type: 'FORMULA' },
+    { col: 13, letter: 'M', field: 'Gross profit ($)',         type: 'FORMULA' },
+    { col: 14, letter: 'N', field: 'Sale price ex-tax ($)',    type: 'FORMULA' },
+    { col: 15, letter: 'O', field: 'Sales tax on sale ($)',    type: 'FORMULA' },
+    { col: 16, letter: 'P', field: 'Net margin (%)',           type: 'FORMULA' },
+    { col: 17, letter: 'Q', field: 'Buyer state',              type: 'INPUT' },
+    { col: 18, letter: 'R', field: 'Notes',                    type: 'INPUT' },
+    { col: 19, letter: 'S', field: 'Sale status',              type: 'INPUT' },
+    { col: 20, letter: 'T', field: 'Trade ID',                 type: 'INPUT' },
   ],
   // ⚠️ There is no longer a "Sales tax collected" INPUT column. Tax per sale is DERIVED at O
   // from the Sales Tax (Direct) price-basis toggle, so a tax figure the owner states at entry
@@ -152,11 +155,21 @@ const VALIDATION = {
   ],
 };
 
-// Purchases col T — a trade's incoming value must equal what you gave up, adjusted for cash
-// boot: H (incoming FMV) = SUM(linked trade sale prices) + S (+paid / -received).
+// Purchases col T — a trade's incoming value must equal what you gave up, adjusted for cash boot:
+//     SUM(incoming FMV) = SUM(linked trade sale prices) + SUM(cash)      (+ paid / - received)
+//
+// AGGREGATED over the trade's purchase rows since 2026-08-29. It used to test this row's own H
+// alone, which silently assumed one purchase row per trade. That broke the first time four cards
+// came in on one deal and were entered as four purchases (T-0023): each row would have needed its
+// own -120 cash to balance, and Purchases!S feeds the tax tab's cash-boot column, so the trade-in
+// credit would have been computed off $480 of boot instead of $20.
+//
+// Identical to the old per-row test whenever a trade has exactly one purchase row, which is why
+// the ten single-row trades keep reading OK unchanged.
 const tradeReconFormula = (r) =>
-  `=IF($R${r}="","",IF(ABS($H${r}-(SUMIF(Sales!$R:$R,$R${r},Sales!$G:$G)+N($S${r})))<0.01,"OK",` +
-  `"CHECK: off by "&TEXT($H${r}-(SUMIF(Sales!$R:$R,$R${r},Sales!$G:$G)+N($S${r})),"$0.00")))`;
+  `=IF($R${r}="","",IF(ABS(SUMIF($R:$R,$R${r},$H:$H)-(SUMIF(Sales!$T:$T,$R${r},Sales!$G:$G)` +
+  `+SUMIF($R:$R,$R${r},$S:$S)))<0.01,"OK","CHECK: off by "&TEXT(SUMIF($R:$R,$R${r},$H:$H)` +
+  `-(SUMIF(Sales!$T:$T,$R${r},Sales!$G:$G)+SUMIF($R:$R,$R${r},$S:$S)),"$0.00")))`;
 
 // Inventory col G — the standard live allocated-cost formula (per-card share of the lot).
 // Kept here so record-trade.js and fill-alloc.js cannot drift apart.
@@ -165,8 +178,69 @@ const allocCostFormula = (r) =>
   `VLOOKUP(B${r},Purchases!$A:$J,10,FALSE())*F${r}/SUMIF($B:$B,B${r},$F:$F),` +
   `VLOOKUP(B${r},Purchases!$A:$J,10,FALSE())*E${r}/SUMIF($B:$B,B${r},$E:$E)),""))`;
 
+// Sales col L — COGS, status-aware: an Unwound deal zeroes its own cost because the basis stays
+// with the inventory row that came back. Col M — gross profit, price less cost.
+// These lived only in add-sale-status.js until 2026-08-29; kept here so the installer, the
+// restructure/repair tool and anything else generate byte-identical strings.
+const salesCogsFormula = (r) =>
+  `=IF($S${r}="Unwound",0,IF(E${r}="","",IFERROR(VLOOKUP(E${r},Inventory!$A:$G,7,FALSE()),"")))`;
+const salesProfitFormula = (r) => `=IF(OR(G${r}="",L${r}=""),"",G${r}-L${r})`;
+
+// Sales col K — net payout. Lived only in the sheet until 2026-08-29, when a stale bot process
+// overwrote one row's copy and there was no code that could put it back. Generated here now.
+const netPayoutFormula = (r) => `=IF(G${r}="","",G${r}+H${r}-I${r})`;
+
+// ── Sales N/O/P — the per-sale price/tax/margin breakdown ────────────────────
+// Added 2026-08-29 with the deletion of the old col J. All three read the toggles on the
+// Sales Tax (Direct) tab rather than hardcoding a rate or a basis, so the workbook keeps ONE
+// answer to "is the tax inside the price?" — rate B4, price basis B6, trade-in credit F6.
+
+// Col O — the NJ tax attributable to this sale. Mirrors the four-way B6 x F6 logic the tax tab
+// already applies per period (restructure-sales-tax.js / add-tax-toggle.js), one row at a time:
+//   - not "Me"      -> 0. The platform charged and remitted its own tax; none of it is ours.
+//   - "Me", cash    -> the whole receipt is the base.
+//   - "Me", Trade   -> under the trade-in credit, only the CASH BOOT received is taxable, so the
+//                      row takes its pro-rata share of the trade's boot. That is how the tab's
+//                      col G/H reach the same figure for the period.
+// ⚠️ BARTER CARVE-OUT: with NO trade-in credit, a trade's FMV *is* the taxable receipt — there is
+// no price with a tax buried inside it — so it is taxed at the rate ON TOP under both price
+// bases, never grossed down. (Under the credit, only the cash boot survives as the base, and
+// cash does carry tax inside it, so that branch follows the price basis like any other sale.)
+// The NA() fall-through is deliberate and must be kept: a bad B6 has to propagate #N/A rather
+// than fall silently into a branch, because the API writes straight past data validation.
+const salesTaxFormula = (r) =>
+  `=IF($G${r}="","",` +
+  `LET(rate,'Sales Tax (Direct)'!$B$4,` +
+  `basis,'Sales Tax (Direct)'!$B$6,` +
+  `credit,'Sales Tax (Direct)'!$F$6,` +
+  `tot,SUMIF($T:$T,$T${r},$G:$G),` +
+  `boot,MAX(0,-SUMIFS(Purchases!$S:$S,Purchases!$R:$R,$T${r},Purchases!$S:$S,"<0")),` +
+  `base,IF($J${r}<>"Me",0,IF($C${r}<>"Trade",$G${r},` +
+  `IF(credit="Excluded",IF(tot=0,0,MIN($G${r},boot*$G${r}/tot)),$G${r}))),` +
+  `ontop,AND($C${r}="Trade",credit<>"Excluded"),` +
+  `IF(basis="Included in the price",IF(ontop,base*rate,base-base/(1+rate)),` +
+  `IF(basis="Added on top (prices are pre-tax)",base*rate,NA()))))`;
+
+// Col N — sale price with the tax taken out. Subtracts only the tax that is actually INSIDE G:
+// under "Added on top" nothing is, and neither is the on-top barter tax above, so N = G on those
+// rows. (G - N) is therefore the embedded tax by construction, which is what col P spends.
+const salesExTaxFormula = (r) =>
+  `=IF($G${r}="","",IF(ISNA($O${r}),NA(),$G${r}-` +
+  `IF(AND('Sales Tax (Direct)'!$B$6="Included in the price",` +
+  `NOT(AND($C${r}="Trade",'Sales Tax (Direct)'!$F$6<>"Excluded"))),$O${r},0)))`;
+
+// Col P — margin AFTER platform fees, so an eBay sale reads lower than a Show sale on the same
+// card. Denominator is net payout (K = price + shipping - fees) less the EMBEDDED tax (G - N),
+// which is the money actually kept. Using (G - N) rather than col O matters for on-top barter:
+// that tax was never inside the payout, so subtracting it would understate revenue. Blank COGS stays blank rather than reading 100%; a non-positive denominator
+// (the $0 Unwound sale) blanks too instead of dividing by zero.
+const salesMarginFormula = (r) =>
+  `=IF(OR($G${r}="",$L${r}=""),"",IF(ISNA($N${r}),NA(),` +
+  `LET(rev,$K${r}-($G${r}-$N${r}),IF(rev<=0,"",(rev-$L${r})/rev))))`;
+
 module.exports = {
   TAB_NAMES, ID_PREFIXES, INPUT_RUNS, COLUMN_MAPS, VALIDATION,
   DASHBOARD_PLATFORM_RANGE, PLATFORMS_EXEMPT_FROM_1099K,
   tradeReconFormula, allocCostFormula,
+  netPayoutFormula, salesCogsFormula, salesProfitFormula, salesTaxFormula, salesExTaxFormula, salesMarginFormula,
 };

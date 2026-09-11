@@ -15,15 +15,14 @@
 //      evaluates to 0 via the Q test, so the zeros stop being manual).
 require('dotenv').config();
 const { google } = require('googleapis');
-const { TAB_NAMES, VALIDATION } = require('./schema');
+const { TAB_NAMES, VALIDATION, salesCogsFormula, salesProfitFormula } = require('./schema');
 
 const SALES = TAB_NAMES.sales;
 const CONFIRM = process.argv.includes('--confirm');
 const MARK = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 
-const cogsFormula = (r) =>
-  `=IF($Q${r}="Unwound",0,IF(E${r}="","",IFERROR(VLOOKUP(E${r},Inventory!$A:$G,7,FALSE()),"")))`;
-const profitFormula = (r) => `=IF(OR(G${r}="",M${r}=""),"",G${r}-M${r})`;
+const cogsFormula = salesCogsFormula;
+const profitFormula = salesProfitFormula;
 
 (async () => {
   const auth = new google.auth.GoogleAuth({
@@ -39,16 +38,16 @@ const profitFormula = (r) => `=IF(OR(G${r}="",M${r}=""),"",G${r}-M${r})`;
   const sheetId = tab.properties.sheetId;
 
   const rows = (await sheets.spreadsheets.values.get({
-    spreadsheetId: sid, range: `'${SALES}'!A:Q`, valueRenderOption: 'FORMULA',
+    spreadsheetId: sid, range: `'${SALES}'!A:T`, valueRenderOption: 'FORMULA',
   })).data.values || [];
 
   const isF = (v) => String(v === undefined ? '' : v).startsWith('=');
   const data = [];
   const plan = { header: false, cogs: [], skipped: [], unwound: [] };
 
-  if (String((rows[0] || [])[16] || '').trim() !== 'Sale status') {
+  if (String((rows[0] || [])[18] || '').trim() !== 'Sale status') {
     plan.header = true;
-    data.push({ range: `'${SALES}'!Q1`, values: [['Sale status']] });
+    data.push({ range: `'${SALES}'!S1`, values: [['Sale status']] });
   }
 
   let last = 1;
@@ -58,37 +57,37 @@ const profitFormula = (r) => `=IF(OR(G${r}="",M${r}=""),"",G${r}-M${r})`;
     const rowNum = i + 1;
     last = rowNum;
     const id = String(r[0]).trim();
-    const curQ = String(r[16] === undefined ? '' : r[16]).trim();
-    const markThis = MARK.includes(id) || curQ === 'Unwound';
+    const curStatus = String(r[18] === undefined ? '' : r[18]).trim();
+    const markThis = MARK.includes(id) || curStatus === 'Unwound';
 
     if (markThis) {
       plan.unwound.push(`${id} (row ${rowNum})`);
-      if (curQ !== 'Unwound') data.push({ range: `'${SALES}'!Q${rowNum}`, values: [['Unwound']] });
-      if (String(r[12] === undefined ? '' : r[12]) !== cogsFormula(rowNum)) {
-        data.push({ range: `'${SALES}'!M${rowNum}`, values: [[cogsFormula(rowNum)]] });
+      if (curStatus !== 'Unwound') data.push({ range: `'${SALES}'!S${rowNum}`, values: [['Unwound']] });
+      if (String(r[11] === undefined ? '' : r[11]) !== cogsFormula(rowNum)) {
+        data.push({ range: `'${SALES}'!L${rowNum}`, values: [[cogsFormula(rowNum)]] });
       }
-      if (!isF(r[13])) data.push({ range: `'${SALES}'!N${rowNum}`, values: [[profitFormula(rowNum)]] });
+      if (!isF(r[12])) data.push({ range: `'${SALES}'!M${rowNum}`, values: [[profitFormula(rowNum)]] });
       continue;
     }
 
-    if (!isF(r[12])) {
-      plan.skipped.push(`${id} (row ${rowNum}) M="${r[12] === undefined ? '' : r[12]}"`);
+    if (!isF(r[11])) {
+      plan.skipped.push(`${id} (row ${rowNum}) L="${r[11] === undefined ? '' : r[11]}"`);
       continue;
     }
-    if (String(r[12]) === cogsFormula(rowNum)) continue; // already migrated
+    if (String(r[11]) === cogsFormula(rowNum)) continue; // already migrated
     plan.cogs.push(rowNum);
-    data.push({ range: `'${SALES}'!M${rowNum}`, values: [[cogsFormula(rowNum)]] });
+    data.push({ range: `'${SALES}'!L${rowNum}`, values: [[cogsFormula(rowNum)]] });
   }
 
   console.log('──────── PLAN ────────');
-  console.log(`Q1 header:                       ${plan.header ? 'ADD "Sale status"' : 'already present'}`);
+  console.log(`S1 header:                       ${plan.header ? 'ADD "Sale status"' : 'already present'}`);
   console.log(`COGS formula -> status-aware:    ${plan.cogs.length} rows`);
   console.log(`Left alone (hand-typed COGS):    ${plan.skipped.length} rows`);
   plan.skipped.slice(0, 5).forEach((s) => console.log(`     ${s}`));
   if (plan.skipped.length > 5) console.log(`     …and ${plan.skipped.length - 5} more`);
   console.log(`Marked Unwound:                  ${plan.unwound.length}`);
   plan.unwound.forEach((s) => console.log(`     ${s}`));
-  console.log(`Dropdown on Q2:Q${last + 200}:            ${VALIDATION.saleStatus.join(' / ')}`);
+  console.log(`Dropdown on S2:S${last + 200}:            ${VALIDATION.saleStatus.join(' / ')}`);
   console.log(`\nTotal cell writes: ${data.length}`);
 
   if (!CONFIRM) { console.log('\nDRY RUN — nothing written. Re-run with --confirm to apply.'); return; }
@@ -103,7 +102,7 @@ const profitFormula = (r) => `=IF(OR(G${r}="",M${r}=""),"",G${r}-M${r})`;
     resource: {
       requests: [{
         setDataValidation: {
-          range: { sheetId, startRowIndex: 1, endRowIndex: last + 200, startColumnIndex: 16, endColumnIndex: 17 },
+          range: { sheetId, startRowIndex: 1, endRowIndex: last + 200, startColumnIndex: 18, endColumnIndex: 19 },
           rule: {
             condition: { type: 'ONE_OF_LIST', values: VALIDATION.saleStatus.map((v) => ({ userEnteredValue: v })) },
             showCustomUi: true,
@@ -113,5 +112,5 @@ const profitFormula = (r) => `=IF(OR(G${r}="",M${r}=""),"",G${r}-M${r})`;
       }],
     },
   });
-  console.log(`\n✓ Wrote ${data.length} cell(s) and applied the Q dropdown.`);
+  console.log(`\n✓ Wrote ${data.length} cell(s) and applied the S dropdown.`);
 })().catch((e) => { console.error('ERROR:', e.message); process.exit(1); });

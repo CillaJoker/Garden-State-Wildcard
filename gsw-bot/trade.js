@@ -126,7 +126,7 @@ async function planTrade(input) {
   // getInventoryLookup() reads only A:C and so carries no Status — read A:I directly.
   const [invRows, salesR, purchR] = await Promise.all([
     grab(`'${TAB_NAMES.inventory}'!A:I`),
-    grab(`'${TAB_NAMES.sales}'!R:R`),
+    grab(`'${TAB_NAMES.sales}'!T:T`),
     grab(`'${TAB_NAMES.purchases}'!R:R`),
   ]);
 
